@@ -49,6 +49,10 @@
 }
 
 * { box-sizing: border-box; }
+/* The hidden attribute must always win over author display rules
+   (e.g. #placeholder { display: flex }), otherwise hidden elements
+   stay visible and overlap the content. */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0;
