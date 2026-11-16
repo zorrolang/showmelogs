@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -63,21 +64,44 @@ func truncateText(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
-// handleSearch is the unified entry point: parse q/mode/scope, then dispatch
-// to one of the two search modes.
+// handleSearch is the unified entry point: parse q/mode/scope/regex, then
+// dispatch to one of the two search modes.
+//
+// Keyword mode (default): q is split on whitespace; all keywords must match.
+// Regex mode (regex=1): q is a single RE2 pattern (Go's regexp engine is
+// linear-time, so arbitrary user patterns cannot hang the server). Compiled
+// with an implicit (?i) prefix for case-insensitivity, matching the keyword
+// mode's behavior; users can opt out locally with (?-i).
 func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if !requireGET(w, r) {
 		return
 	}
 	q := r.URL.Query().Get("q")
-	kws := parseKeywords(q)
-	if len(kws) == 0 {
-		writeAPIError(w, errBadRequest("missing search keywords (q)"))
-		return
-	}
-	if len(kws) > searchMaxKeywords {
-		writeAPIError(w, errBadRequest("too many keywords (max 20)"))
-		return
+	var (
+		kws []string
+		re  *regexp.Regexp
+		err error
+	)
+	if boolParam(r.URL.Query().Get("regex")) {
+		if strings.TrimSpace(q) == "" {
+			writeAPIError(w, errBadRequest("missing search pattern (q)"))
+			return
+		}
+		re, err = regexp.Compile("(?i)" + q)
+		if err != nil {
+			writeAPIError(w, errBadRequest("invalid regex: "+err.Error()))
+			return
+		}
+	} else {
+		kws = parseKeywords(q)
+		if len(kws) == 0 {
+			writeAPIError(w, errBadRequest("missing search keywords (q)"))
+			return
+		}
+		if len(kws) > searchMaxKeywords {
+			writeAPIError(w, errBadRequest("too many keywords (max 20)"))
+			return
+		}
 	}
 	mode := r.URL.Query().Get("mode")
 	if mode == "" {
@@ -112,10 +136,10 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if mode == "content" {
-		a.searchContent(w, r, scope, kws)
+		a.searchContent(w, r, scope, kws, re)
 		return
 	}
-	a.searchName(w, r, scope, kws)
+	a.searchName(w, r, scope, kws, re)
 }
 
 // searchName concurrently walks the tree and matches entries whose own
@@ -125,8 +149,9 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 //
 // Directories may carry an optional free-form .whiteboard file; an entry
 // matches when all keywords appear in the concatenation of its name and
-// whiteboard text, and the whiteboard is included in the result.
-func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, kws []string) {
+// whiteboard text (or when the regex matches that text), and the whiteboard
+// is included in the result.
+func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, kws []string, re *regexp.Regexp) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
@@ -144,10 +169,16 @@ func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, k
 				searchable += "\n" + wb
 			}
 		}
-		low := strings.ToLower(searchable)
-		for _, kw := range kws {
-			if !strings.Contains(low, kw) {
+		if re != nil {
+			if !re.MatchString(searchable) {
 				return
+			}
+		} else {
+			low := strings.ToLower(searchable)
+			for _, kw := range kws {
+				if !strings.Contains(low, kw) {
+					return
+				}
 			}
 		}
 		mu.Lock()
@@ -188,9 +219,9 @@ func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, k
 
 // searchContent concurrently scans text files: skipping hidden files, binary
 // files (probe contains \x00 or too many control chars) and files over 20 MB.
-// A line matches when it contains every keyword; at most 5 lines per file and
-// 100 files are returned.
-func (a *App) searchContent(w http.ResponseWriter, r *http.Request, scope string, kws []string) {
+// A line matches when it contains every keyword (or when the regex matches);
+// at most 5 lines per file and 100 files are returned.
+func (a *App) searchContent(w http.ResponseWriter, r *http.Request, scope string, kws []string, re *regexp.Regexp) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
@@ -233,12 +264,17 @@ func (a *App) searchContent(w http.ResponseWriter, r *http.Request, scope string
 				break
 			}
 			line := sc.Text()
-			low := strings.ToLower(line)
-			ok := true
-			for _, kw := range kws {
-				if !strings.Contains(low, kw) {
-					ok = false
-					break
+			var ok bool
+			if re != nil {
+				ok = re.MatchString(line)
+			} else {
+				low := strings.ToLower(line)
+				ok = true
+				for _, kw := range kws {
+					if !strings.Contains(low, kw) {
+						ok = false
+						break
+					}
 				}
 			}
 			if !ok {

@@ -90,8 +90,8 @@ main { flex: 1; display: flex; min-height: 0; }
 .sorters { display: flex; gap: 4px; }
 .sorters button { border: 1px solid transparent; background: transparent; color: var(--dim); font-size: 12px; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
 .sorters button.active { border-color: var(--border); color: var(--accent); background: var(--hover); }
-.wb-toggle { border: 1px solid transparent; background: transparent; color: var(--dim); font-size: 12px; padding: 3px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
-.wb-toggle.active { border-color: var(--border); color: var(--accent); background: var(--hover); }
+.mini-toggle { border: 1px solid transparent; background: transparent; color: var(--dim); font-size: 12px; padding: 3px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.mini-toggle.active { border-color: var(--border); color: var(--accent); background: var(--hover); }
 #fileList { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
 #fileList .empty { padding: 28px 12px; text-align: center; color: var(--dim); font-size: 13px; }
 .disk-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--dim); white-space: nowrap; }
@@ -162,6 +162,7 @@ mark { background: var(--mark); color: var(--mark-text); border-radius: 2px; pad
       <button id="btnModeName" class="active">搜目录项/whiteboard</button>
       <button id="btnModeContent">搜文件内容</button>
     </div>
+    <button id="btnRegex" class="mini-toggle" title="正则表达式搜索（RE2 语法，默认忽略大小写）">.* 正则</button>
     <label class="scope"><input type="checkbox" id="scopeCur"> 仅搜当前目录</label>
     <button id="btnSearch" class="primary">搜索</button>
   </div>
@@ -177,7 +178,7 @@ mark { background: var(--mark); color: var(--mark-text); border-radius: 2px; pad
           <button data-key="size">大小</button>
           <button data-key="time" class="active">时间 ↓</button>
         </div>
-        <button id="btnWB" class="wb-toggle active" title="显示/隐藏目录下 .whiteboard 文件内容">📝 whiteboard</button>
+        <button id="btnWB" class="mini-toggle active" title="显示/隐藏目录下 .whiteboard 文件内容">📝 whiteboard</button>
       </div>
     </div>
     <ul id="fileList"></ul>
@@ -237,6 +238,7 @@ let filterText = '';
 let filterOnly = false;
 let rafId = 0;
 let wbOn = localStorage.getItem('smlog-wb') !== '0'; // show .whiteboard boxes under dirs
+let regexOn = false; // regex mode for both search modes
 
 /* ---------- Helpers ---------- */
 function el(tag, cls, text) {
@@ -346,9 +348,16 @@ function renderList() {
     list.append(el('li', 'empty', searchMode ? '没有匹配结果' : '（空目录）'));
     return;
   }
-  // In search results, highlight every keyword in names and whiteboard text.
-  const kws = searchMode ? searchMode.query.trim().split(/\s+/).filter(Boolean) : [];
-  const hlRe = kws.length ? new RegExp(kws.map(escapeRe).join('|'), 'gi') : null;
+  // In search results, highlight matches in names and whiteboard text:
+  // keywords mode -> alternation of escaped keywords, regex mode -> the raw
+  // pattern (client-side compile may fail for RE2-only syntax; then skip
+  // highlighting but still show the results).
+  let hlRe = null;
+  if (searchMode) {
+    const kws = searchMode.query.trim().split(/\s+/).filter(Boolean);
+    const pat = searchMode.regex ? searchMode.query.trim() : kws.map(escapeRe).join('|');
+    try { hlRe = new RegExp(pat, 'gi'); } catch (e) { /* skip highlight */ }
+  }
   for (const it of items) {
     const li = el('li', 'item' + (it.is_dir ? ' dir' : ''));
     const row = el('div', 'row');
@@ -444,16 +453,30 @@ async function refreshDisk() {
 }
 
 /* ---------- Dual-mode search ---------- */
+function updatePlaceholder() {
+  if (modeContent) {
+    $('#q').placeholder = regexOn
+      ? '正则搜索文件内容（RE2 语法，如 ext4.*(error|warn)），默认忽略大小写'
+      : '搜索文件内容（如 Call Trace、BUG:、FAILED）';
+  } else {
+    $('#q').placeholder = regexOn
+      ? '正则搜索目录项/whiteboard（RE2 语法，如 ^2026.*nfs）'
+      : '搜索目录项/whiteboard（如 6.12 ext4、rmapbt=1），空格分隔多关键词';
+  }
+}
 function setMode(content) {
   modeContent = content;
   $('#btnModeName').classList.toggle('active', !content);
   $('#btnModeContent').classList.toggle('active', content);
-  $('#q').placeholder = content
-    ? '搜索文件内容（如 Call Trace、BUG:、FAILED）'
-    : '搜索目录项/whiteboard（如 6.12 ext4、rmapbt=1），空格分隔多关键词';
+  updatePlaceholder();
 }
 $('#btnModeName').addEventListener('click', () => setMode(false));
 $('#btnModeContent').addEventListener('click', () => setMode(true));
+$('#btnRegex').addEventListener('click', () => {
+  regexOn = !regexOn;
+  $('#btnRegex').classList.toggle('active', regexOn);
+  updatePlaceholder();
+});
 function exitSearch() {
   if (searchMode) { searchMode = null; $('#q').value = ''; }
 }
@@ -462,10 +485,11 @@ async function doSearch() {
   if (!q) { toast('请输入搜索关键词'); $('#q').focus(); return; }
   const mode = modeContent ? 'content' : 'name';
   const scope = $('#scopeCur').checked ? curPath : '';
-  const url = '/api/search?q=' + enc(q) + '&mode=' + mode + '&scope=' + enc(scope);
+  const url = '/api/search?q=' + enc(q) + '&mode=' + mode + '&scope=' + enc(scope)
+    + (regexOn ? '&regex=1' : '');
   try {
     const data = await api(url);
-    searchMode = { query: q, mode: mode, data: data };
+    searchMode = { query: q, mode: mode, data: data, regex: regexOn };
     curItems = (data.results || []).map(r => ({
       name: r.name,
       rel_path: r.rel_path,

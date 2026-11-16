@@ -764,6 +764,75 @@ func TestWhiteboard(t *testing.T) {
 	}
 }
 
+// TestSearchRegex: regex=1 enables RE2 patterns for both name and content
+// search (case-insensitive by default).
+func TestSearchRegex(t *testing.T) {
+	app := newTestApp(t, nil)
+	mustWriteFile(t, filepath.Join(app.root, "run1", ".whiteboard"), "kernel 6.12 rmapbt=1 localio=no")
+	mustWriteFile(t, filepath.Join(app.root, "run1", "check.log"), "log")
+	mustWriteFile(t, filepath.Join(app.root, "logs", "debug.log"),
+		"line1\nBUG: NULL pointer in ext4\nBUG: another pointer\nend\n")
+
+	type respT struct {
+		Count   int    `json:"count"`
+		Results []item `json:"results"`
+	}
+	var resp respT
+
+	// Name mode: regex anchored to the entry name.
+	w := doGet(t, app, "/api/search?q=%5Erun1&mode=name&regex=1")
+	decodeBody(t, w, &resp)
+	if resp.Count != 1 || resp.Results[0].Name != "run1" {
+		t.Fatalf("^run1: count=%d, want 1 (run1)", resp.Count)
+	}
+	// Regex hitting the whiteboard only.
+	w = doGet(t, app, "/api/search?q=rmapbt%3D%5Cd&mode=name&regex=1")
+	decodeBody(t, w, &resp)
+	if resp.Count != 1 || resp.Results[0].Name != "run1" {
+		t.Fatalf("rmapbt=\\d: count=%d, want 1 (run1)", resp.Count)
+	}
+	// Case-insensitive by default.
+	w = doGet(t, app, "/api/search?q=KERNEL+6%5C.12&mode=name&regex=1")
+	decodeBody(t, w, &resp)
+	if resp.Count != 1 {
+		t.Fatalf("case-insensitive regex: count=%d, want 1", resp.Count)
+	}
+	// Invalid regex -> 400 with a compile error message.
+	w = doGet(t, app, "/api/search?q=%28&mode=name&regex=1")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid regex status %d, want 400", w.Code)
+	}
+	var errResp struct {
+		Error string `json:"error"`
+	}
+	decodeBody(t, w, &errResp)
+	if !strings.Contains(errResp.Error, "invalid regex") {
+		t.Errorf("error = %q, want invalid regex message", errResp.Error)
+	}
+
+	// Content mode: regex per line.
+	type cresp struct {
+		Count   int `json:"count"`
+		Results []struct {
+			RelPath string      `json:"rel_path"`
+			Matches []matchLine `json:"matches"`
+		} `json:"results"`
+	}
+	var cr cresp
+	w = doGet(t, app, "/api/search?q=BUG%3A.*pointer&mode=content&regex=1")
+	if w.Code != http.StatusOK {
+		t.Fatalf("content regex status %d: %s", w.Code, w.Body.String())
+	}
+	decodeBody(t, w, &cr)
+	if cr.Count != 1 || len(cr.Results[0].Matches) != 2 {
+		t.Fatalf("content regex count=%d matches=%+v, want 1 file / 2 lines", cr.Count, cr.Results)
+	}
+	if cr.Results[0].Matches[0].LineNum != 2 || cr.Results[0].Matches[1].LineNum != 3 {
+		t.Errorf("line nums = %d %d, want 2 3",
+			cr.Results[0].Matches[0].LineNum, cr.Results[0].Matches[1].LineNum)
+	}
+}
+
 // TestDiskUsage: /api/disk reports the usage of the filesystem holding the
 // root directory.
 func TestDiskUsage(t *testing.T) {

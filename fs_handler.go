@@ -39,6 +39,11 @@ const (
 // (referenced by tests).
 const previewSeparator = "\n\n========== [showmelogs] 文件过大，中间部分已省略（点击“加载完整内容”或下载原文件查看全部） ==========\n\n"
 
+// boolParam parses a boolean query parameter ("1", "true", "yes").
+func boolParam(s string) bool {
+	return s == "1" || strings.EqualFold(s, "true") || strings.EqualFold(s, "yes")
+}
+
 // httpError is a business error carrying an HTTP status code.
 type httpError struct {
 	code int
@@ -469,8 +474,7 @@ func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	resp["is_binary"] = false
 
-	fv := r.URL.Query().Get("full")
-	fullReq := fv == "1" || strings.EqualFold(fv, "true") || strings.EqualFold(fv, "yes")
+	fullReq := boolParam(r.URL.Query().Get("full"))
 	size := fi.Size()
 
 	switch {
