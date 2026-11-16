@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -68,18 +69,36 @@ func truncateText(s string, n int) string {
 // dispatch to one of the two search modes.
 //
 // Keyword mode (default): q is split on whitespace; all keywords must match.
-// Regex mode (regex=1): q is a single RE2 pattern (Go's regexp engine is
-// linear-time, so arbitrary user patterns cannot hang the server). Compiled
-// with an implicit (?i) prefix for case-insensitivity, matching the keyword
-// mode's behavior; users can opt out locally with (?-i).
+// Regex mode (regex=1):
+//   - name mode: q is split on whitespace into multiple RE2 patterns, all of
+//     which must match the name+whiteboard text (mirroring keyword mode's
+//     AND-of-terms behavior; each pattern may hit the name or the whiteboard
+//     independently);
+//   - content mode: q stays a single pattern matched per line, since spaces
+//     are usually a meaningful part of log patterns.
+//
+// Patterns are compiled with an implicit (?i) prefix for case-insensitivity,
+// matching the keyword mode's behavior; users can opt out locally with (?-i).
+// Go's regexp engine is linear-time, so arbitrary patterns cannot hang the
+// server.
 func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if !requireGET(w, r) {
 		return
 	}
 	q := r.URL.Query().Get("q")
+	mode := r.URL.Query().Get("mode")
+	if mode == "" {
+		mode = "name"
+	}
+	if mode != "name" && mode != "content" {
+		writeAPIError(w, errBadRequest("invalid mode (use name or content)"))
+		return
+	}
+
 	var (
-		kws []string
-		re  *regexp.Regexp
+		kws []string         // keyword mode: substrings (ANDed)
+		res []*regexp.Regexp // regex mode, name search: ANDed patterns
+		re  *regexp.Regexp   // regex mode, content search: single pattern
 		err error
 	)
 	if boolParam(r.URL.Query().Get("regex")) {
@@ -87,10 +106,26 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, errBadRequest("missing search pattern (q)"))
 			return
 		}
-		re, err = regexp.Compile("(?i)" + q)
-		if err != nil {
-			writeAPIError(w, errBadRequest("invalid regex: "+err.Error()))
-			return
+		if mode == "name" {
+			fields := strings.Fields(q)
+			if len(fields) > searchMaxKeywords {
+				writeAPIError(w, errBadRequest("too many regex patterns (max 20)"))
+				return
+			}
+			for _, f := range fields {
+				cre, err := regexp.Compile("(?i)" + f)
+				if err != nil {
+					writeAPIError(w, errBadRequest("invalid regex "+strconv.Quote(f)+": "+err.Error()))
+					return
+				}
+				res = append(res, cre)
+			}
+		} else {
+			re, err = regexp.Compile("(?i)" + q)
+			if err != nil {
+				writeAPIError(w, errBadRequest("invalid regex: "+err.Error()))
+				return
+			}
 		}
 	} else {
 		kws = parseKeywords(q)
@@ -102,14 +137,6 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, errBadRequest("too many keywords (max 20)"))
 			return
 		}
-	}
-	mode := r.URL.Query().Get("mode")
-	if mode == "" {
-		mode = "name"
-	}
-	if mode != "name" && mode != "content" {
-		writeAPIError(w, errBadRequest("invalid mode (use name or content)"))
-		return
 	}
 
 	scope := a.root
@@ -139,7 +166,7 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 		a.searchContent(w, r, scope, kws, re)
 		return
 	}
-	a.searchName(w, r, scope, kws, re)
+	a.searchName(w, r, scope, kws, res)
 }
 
 // searchName concurrently walks the tree and matches entries whose own
@@ -149,9 +176,9 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 //
 // Directories may carry an optional free-form .whiteboard file; an entry
 // matches when all keywords appear in the concatenation of its name and
-// whiteboard text (or when the regex matches that text), and the whiteboard
-// is included in the result.
-func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, kws []string, re *regexp.Regexp) {
+// whiteboard text (or when every regex pattern matches that text), and the
+// whiteboard is included in the result.
+func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, kws []string, res []*regexp.Regexp) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
@@ -169,9 +196,11 @@ func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, k
 				searchable += "\n" + wb
 			}
 		}
-		if re != nil {
-			if !re.MatchString(searchable) {
-				return
+		if res != nil {
+			for _, re := range res {
+				if !re.MatchString(searchable) {
+					return
+				}
 			}
 		} else {
 			low := strings.ToLower(searchable)

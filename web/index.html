@@ -355,7 +355,14 @@ function renderList() {
   let hlRe = null;
   if (searchMode) {
     const kws = searchMode.query.trim().split(/\s+/).filter(Boolean);
-    const pat = searchMode.regex ? searchMode.query.trim() : kws.map(escapeRe).join('|');
+    let pat;
+    if (searchMode.regex) {
+      // Name mode splits the query into ANDed patterns (highlight each);
+      // content mode treats it as one pattern.
+      pat = searchMode.mode === 'name' ? kws.join('|') : searchMode.query.trim();
+    } else {
+      pat = kws.map(escapeRe).join('|');
+    }
     try { hlRe = new RegExp(pat, 'gi'); } catch (e) { /* skip highlight */ }
   }
   for (const it of items) {
@@ -460,7 +467,7 @@ function updatePlaceholder() {
       : '搜索文件内容（如 Call Trace、BUG:、FAILED）';
   } else {
     $('#q').placeholder = regexOn
-      ? '正则搜索目录项/whiteboard（RE2 语法，如 ^2026.*nfs）'
+      ? '正则搜索目录项/whiteboard（空格分隔多条正则，均需匹配，如 ^2026 nfs）'
       : '搜索目录项/whiteboard（如 6.12 ext4、rmapbt=1），空格分隔多关键词';
   }
 }

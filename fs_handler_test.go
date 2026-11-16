@@ -797,6 +797,14 @@ func TestSearchRegex(t *testing.T) {
 	if resp.Count != 1 {
 		t.Fatalf("case-insensitive regex: count=%d, want 1", resp.Count)
 	}
+	// Name-mode regex splits on whitespace into ANDed patterns: one pattern
+	// may hit the directory name and another the whiteboard.
+	mustWriteFile(t, filepath.Join(app.root, "xfstests-run", ".whiteboard"), "kernel 6.12")
+	w = doGet(t, app, "/api/search?q=xfstests+6%5C.12&mode=name&regex=1")
+	decodeBody(t, w, &resp)
+	if resp.Count != 1 || resp.Results[0].Name != "xfstests-run" {
+		t.Fatalf("split regex: count=%d, want 1 (xfstests-run)", resp.Count)
+	}
 	// Invalid regex -> 400 with a compile error message.
 	w = doGet(t, app, "/api/search?q=%28&mode=name&regex=1")
 	if w.Code != http.StatusBadRequest {
