@@ -359,7 +359,7 @@ func TestSearchNameMode(t *testing.T) {
 }
 
 // TestSearchContentMode: line numbers, text extraction, per-line multi-keyword
-// matching, skipping binary/hidden/oversized files, 5 matches per file max.
+// matching, skipping binary and hidden files, 5 matches per file max.
 func TestSearchContentMode(t *testing.T) {
 	app := newTestApp(t, nil)
 	logDir := filepath.Join(app.root, "logs")
@@ -377,7 +377,8 @@ func TestSearchContentMode(t *testing.T) {
 	mustWriteFile(t, filepath.Join(logDir, ".hidden.log"), "BUG: hidden file\n")
 	// Hidden directory: must be skipped.
 	mustWriteFile(t, filepath.Join(logDir, ".git", "objects", "ab"), "BUG: in hidden dir\n")
-	// 21 MB oversized file: must be skipped.
+	// 21 MB all-zero sparse file: skipped by the binary probe (\x00 in the
+	// first 512 bytes), regardless of file size.
 	huge := filepath.Join(logDir, "huge.log")
 	f, err := os.Create(huge)
 	if err != nil {

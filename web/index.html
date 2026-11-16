@@ -134,8 +134,11 @@ body.right-max #left, body.right-max #divider { display: none; }
 .v-spacer { flex: 1; }
 #filter { width: 200px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--code-bg); color: var(--text); font-size: 12px; }
 #filter:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
-.trunc-banner { display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--mark); color: var(--mark-text); font-size: 12px; border-bottom: 1px solid var(--border); }
-.trunc-banner button { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.trunc-banner { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: var(--mark); color: var(--mark-text); font-size: 13px; font-weight: 600; border-bottom: 2px solid var(--border); flex-wrap: wrap; }
+.trunc-msg { flex: 1; min-width: 220px; }
+.trunc-banner button { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.trunc-banner button:hover { background: rgba(255,255,255,.35); }
+#fullNote { font-weight: 400; font-size: 12px; }
 #viewerBody { flex: 1; overflow: auto; position: relative; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 13px; line-height: 18px; }
 #sizer { position: relative; width: 100%; }
 .vrow { position: absolute; left: 0; height: 18px; display: flex; width: max-content; min-width: 100%; }
@@ -200,9 +203,10 @@ mark { background: var(--mark); color: var(--mark-text); border-radius: 2px; pad
       <label class="scope"><input type="checkbox" id="filterOnly"> 仅看匹配行</label>
     </div>
     <div id="truncBanner" class="trunc-banner" hidden>
-      <span></span>
-      <button id="btnLoadFull" hidden>加载完整内容（上限 10MB）</button>
-      <span id="fullNote" hidden>文件超过 10MB，无法完整加载，请下载原文件</span>
+      <span id="truncMsg" class="trunc-msg"></span>
+      <button id="btnLoadFull" hidden>加载完整内容（≤10MB）</button>
+      <button id="btnBannerDownload">下载原文件</button>
+      <span id="fullNote" hidden>超过 10MB 无法完整加载，建议下载原文件或用全文搜索定位问题行</span>
     </div>
     <div id="viewerBody">
       <div id="placeholder">
@@ -536,13 +540,14 @@ async function fetchPreview(full) {
     fileMeta = data;
     $('#vMeta').textContent = humanSize(data.size) + ' · ' + (data.mod_time || '');
     const b = $('#truncBanner');
-    const bMsg = b.querySelector('span');
+    const bMsg = $('#truncMsg');
     if (data.is_binary) {
       rawLines = [];
       viewLines = [];
       b.hidden = false;
-      bMsg.textContent = '⚠ 二进制文件（' + humanSize(data.size) + '），无法在线预览，请下载';
+      bMsg.textContent = '⚠ 二进制文件（' + humanSize(data.size) + '），无法在线预览，请下载查看';
       $('#btnLoadFull').hidden = true;
+      $('#btnBannerDownload').hidden = false;
       $('#fullNote').hidden = true;
       renderViewport(true);
       return;
@@ -550,8 +555,9 @@ async function fetchPreview(full) {
     rawLines = data.content.split('\n');
     viewer.truncated = data.truncated;
     b.hidden = !data.truncated;
-    bMsg.textContent = '⚠ 文件过大，仅显示首尾部分（前 128KB + 末尾 384KB）';
+    bMsg.textContent = '⚠ 文件过大（' + humanSize(data.size) + '），仅显示首尾部分（前 128KB + 末尾 384KB）';
     $('#btnLoadFull').hidden = !(data.truncated && !full);
+    $('#btnBannerDownload').hidden = false;
     $('#fullNote').hidden = !(data.truncated && full);
     applyFilter();
   } catch (e) {
@@ -667,6 +673,7 @@ $('#btnMax').addEventListener('click', () => {
   setTimeout(draw, 60); // redraw the viewport after layout change
 });
 $('#btnLoadFull').addEventListener('click', () => { if (viewer) fetchPreview(true); });
+$('#btnBannerDownload').addEventListener('click', () => { if (viewer) downloadUrl(viewer.rel); });
 
 /* ---------- Keyboard shortcuts ---------- */
 document.addEventListener('keydown', e => {

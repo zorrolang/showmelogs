@@ -20,15 +20,14 @@ import (
 )
 
 const (
-	searchNameLimit      = 200      // max name-search results
-	searchContentFiles   = 100      // max files returned by content search
-	searchContentMatches = 5        // max matching lines per file
-	searchContentMaxFile = 20 << 20 // skip files larger than 20 MB
-	searchMaxLine        = 4 << 20  // max line length (bufio.Scanner buffer)
-	searchMaxKeywords    = 20       // max number of keywords
-	walkConcurrency      = 64       // concurrent walker workers
-	matchTextLimit       = 200      // matching line text truncation (runes)
-	dirQueueCap          = 1 << 14  // pending-directory queue capacity (~256 KB)
+	searchNameLimit      = 200     // max name-search results
+	searchContentFiles   = 100     // max files returned by content search
+	searchContentMatches = 5       // max matching lines per file
+	searchMaxLine        = 4 << 20 // max line length (bufio.Scanner buffer)
+	searchMaxKeywords    = 20      // max number of keywords
+	walkConcurrency      = 64      // concurrent walker workers
+	matchTextLimit       = 200     // matching line text truncation (runes)
+	dirQueueCap          = 1 << 14 // pending-directory queue capacity (~256 KB)
 )
 
 // matchLine is a single matching line in content search.
@@ -246,10 +245,12 @@ func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, k
 	})
 }
 
-// searchContent concurrently scans text files: skipping hidden files, binary
-// files (probe contains \x00 or too many control chars) and files over 20 MB.
-// A line matches when it contains every keyword (or when the regex matches);
-// at most 5 lines per file and 100 files are returned.
+// searchContent concurrently scans text files, skipping hidden files and
+// binary files (probe contains \x00 or too many control chars). Files of any
+// size are scanned — the scan is streaming (bufio.Scanner), so memory stays
+// constant even for multi-hundred-MB console logs. A line matches when it
+// contains every keyword (or when the regex matches); at most 5 lines per
+// file and 100 files are returned.
 func (a *App) searchContent(w http.ResponseWriter, r *http.Request, scope string, kws []string, re *regexp.Regexp) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -266,9 +267,6 @@ func (a *App) searchContent(w http.ResponseWriter, r *http.Request, scope string
 		}
 		if info.IsDir() {
 			return
-		}
-		if info.Size() > searchContentMaxFile {
-			return // skip oversized files
 		}
 		f, err := os.Open(abs)
 		if err != nil {
