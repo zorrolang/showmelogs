@@ -167,14 +167,15 @@ mark { background: var(--mark); color: var(--mark-text); border-radius: 2px; pad
   <div class="search-area">
     <input id="q" type="text" placeholder="搜索目录/文件名（如 6.12 ext4），空格分隔多关键词" autocomplete="off">
     <div class="mode-switch" id="modeSwitch">
-      <button id="btnModeName" class="active">搜目录项/whiteboard</button>
-      <button id="btnModeContent">搜文件内容</button>
+      <button id="btnModeName" class="active" data-i18n="modeName">搜目录项/whiteboard</button>
+      <button id="btnModeContent" data-i18n="modeContent">搜文件内容</button>
     </div>
-    <button id="btnRegex" class="mini-toggle" title="正则表达式搜索（RE2 语法，默认忽略大小写）">.* 正则</button>
-    <label class="scope"><input type="checkbox" id="scopeCur"> 仅搜当前目录</label>
-    <button id="btnSearch" class="primary">搜索</button>
+    <button id="btnRegex" class="mini-toggle" data-i18n="regexToggle" data-i18n-title="regexToggleTitle">.* 正则</button>
+    <label class="scope"><input type="checkbox" id="scopeCur"> <span data-i18n="scopeCur">仅搜当前目录</span></label>
+    <button id="btnSearch" class="primary" data-i18n="searchBtn">搜索</button>
   </div>
-  <button id="btnTheme" title="切换主题">🌓</button>
+  <button id="btnLang" class="mini-toggle" data-i18n-title="langTitle">🌐 中文</button>
+  <button id="btnTheme" data-i18n-title="themeTitle" title="切换主题">🌓</button>
 </header>
 <main id="main">
   <section id="left">
@@ -182,11 +183,11 @@ mark { background: var(--mark); color: var(--mark-text); border-radius: 2px; pad
       <span id="listTitle">目录</span>
       <div class="list-tools">
         <div class="sorters" id="sorters">
-          <button data-key="name">名称</button>
-          <button data-key="size">大小</button>
-          <button data-key="time" class="active">时间 ↓</button>
+          <button data-key="name" data-i18n="sortName">名称</button>
+          <button data-key="size" data-i18n="sortSize">大小</button>
+          <button data-key="time" class="active" data-i18n="sortTime">时间 ↓</button>
         </div>
-        <button id="btnWB" class="mini-toggle active" title="显示/隐藏目录下 .whiteboard 文件内容">📝 whiteboard</button>
+        <button id="btnWB" class="mini-toggle active" data-i18n-title="wbTitle" title="显示/隐藏目录下 .whiteboard 文件内容">📝 whiteboard</button>
       </div>
     </div>
     <ul id="fileList"></ul>
@@ -195,32 +196,32 @@ mark { background: var(--mark); color: var(--mark-text); border-radius: 2px; pad
       <div class="disk-track"><div id="diskUsed" class="disk-fill"></div></div>
     </div>
   </section>
-  <div id="divider" title="拖动调整宽度"></div>
+  <div id="divider" data-i18n-title="dividerTitle" title="拖动调整宽度"></div>
   <section id="right">
     <div id="viewerBar" class="viewer-bar" hidden>
       <span id="vName" class="v-name"></span>
       <span id="vMeta" class="v-meta"></span>
-      <button id="btnCopy">复制内容</button>
-      <button id="btnDownload">下载原文件</button>
-      <button id="btnMax">全屏</button>
+      <button id="btnCopy" data-i18n="btnCopy">复制内容</button>
+      <button id="btnDownload" data-i18n="btnDownload">下载原文件</button>
+      <button id="btnMax" data-i18n="btnMax">全屏</button>
       <span class="v-spacer"></span>
-      <input id="filter" type="text" placeholder="页内高亮过滤…" autocomplete="off">
-      <label class="scope"><input type="checkbox" id="filterOnly"> 仅看匹配行</label>
+      <input id="filter" type="text" data-i18n-ph="filterPh" placeholder="页内高亮过滤…" autocomplete="off">
+      <label class="scope"><input type="checkbox" id="filterOnly"> <span data-i18n="filterOnly">仅看匹配行</span></label>
     </div>
     <div id="truncBanner" class="trunc-banner" hidden>
       <span id="truncMsg" class="trunc-msg"></span>
-      <button id="btnLoadFull" hidden>加载完整内容（≤10MB）</button>
-      <button id="btnBannerDownload">下载原文件</button>
-      <span id="fullNote" hidden>超过 10MB 无法完整加载，建议下载原文件或用全文搜索定位问题行</span>
+      <button id="btnLoadFull" hidden data-i18n="btnLoadFull">加载完整内容（≤10MB）</button>
+      <button id="btnBannerDownload" data-i18n="btnDownload">下载原文件</button>
+      <span id="fullNote" hidden data-i18n="fullNote">超过 10MB 无法完整加载，建议下载原文件或用全文搜索定位问题行</span>
     </div>
     <div id="viewerBody">
       <div id="placeholder">
-        <h3>📖 日志在线阅读器</h3>
-        <div>点击左侧文件开始预览（<code>.log</code> / <code>.bad</code> / <code>.out</code> / <code>.dmesg</code> / <code>.full</code> / <code>.json</code> / <code>.txt</code> …）</div>
-        <div>🔍 双模式检索：目录/文件名（如 <kbd>6.12 ext4</kbd>）与文件内容（如 <kbd>Call Trace</kbd>、<kbd>BUG:</kbd>、<kbd>FAILED</kbd>）</div>
-        <div>⌨️ 快捷键：<kbd>/</kbd> 聚焦搜索框 · <kbd>Esc</kbd> 退出搜索返回目录 · <kbd>Enter</kbd> 搜索</div>
-        <div>⚠️ 大文件自动截断预览（前 128KB + 末尾 384KB），可一键加载完整内容（≤10MB）</div>
-        <div>🧩 拖动中间分隔条调整宽度，或点击「全屏」最大化阅读器</div>
+        <h3 data-i18n="phTitle">📖 日志在线阅读器</h3>
+        <div data-i18n-html="phTip1">点击左侧文件开始预览（<code>.log</code> / <code>.bad</code> / <code>.out</code> / <code>.dmesg</code> / <code>.full</code> / <code>.json</code> / <code>.txt</code> …）</div>
+        <div data-i18n-html="phTip2">🔍 双模式检索：目录项/whiteboard（如 <kbd>6.12 ext4</kbd>）与文件内容（如 <kbd>Call Trace</kbd>、<kbd>BUG:</kbd>、<kbd>FAILED</kbd>）</div>
+        <div data-i18n-html="phTip3">⌨️ 快捷键：<kbd>/</kbd> 聚焦搜索框 · <kbd>Esc</kbd> 退出搜索返回目录 · <kbd>Enter</kbd> 搜索</div>
+        <div data-i18n="phTip4">⚠️ 大文件自动截断预览（前 128KB + 末尾 384KB），中段随滚动逐段加载</div>
+        <div data-i18n="phTip5">🧩 拖动中间分隔条调整宽度，或点击「全屏」最大化阅读器</div>
       </div>
     </div>
   </section>
@@ -257,6 +258,113 @@ function el(tag, cls, text) {
   if (cls) e.className = cls;
   if (text !== undefined) e.textContent = text;
   return e;
+}
+/* ---------- i18n: zh-CN / en-US UI strings (file names, file content,
+   whiteboards, tags and search keywords are never translated) ---------- */
+const I18N = {
+  'zh-CN': {
+    modeName: '搜目录项/whiteboard', modeContent: '搜文件内容',
+    regexToggle: '.* 正则', regexToggleTitle: '正则表达式搜索（RE2 语法，默认忽略大小写）',
+    scopeCur: '仅搜当前目录', searchBtn: '搜索',
+    themeTitle: '切换主题', langTitle: '切换语言（Switch language）',
+    sortName: '名称', sortSize: '大小', sortTime: '时间',
+    wbTitle: '显示/隐藏目录下 .whiteboard 文件内容', dividerTitle: '拖动调整宽度',
+    emptyDir: '（空目录）', noMatch: '没有匹配结果', loading: '加载中…',
+    loadFailed: '加载失败：{e}', searchResults: '搜索结果 {n} 条', capped: '（已达上限）',
+    matchesCount: '{n} 处匹配', zipBtn: '打包下载 .zip', downloadBtn: '下载',
+    crumbSearch: '搜索: {q}', crumbRootTitle: '返回根目录',
+    phNameKw: '搜索目录项/whiteboard（如 6.12 ext4、rmapbt=1），空格分隔多关键词',
+    phContentKw: '搜索文件内容（如 Call Trace、BUG:、FAILED）',
+    phNameRe: '正则搜索目录项/whiteboard（空格分隔多条正则，均需匹配，如 ^2026 nfs）',
+    phContentRe: '正则搜索文件内容（RE2 语法，如 ext4.*(error|warn)），默认忽略大小写',
+    btnCopy: '复制内容', btnDownload: '下载原文件', btnMax: '全屏', btnMaxOff: '退出全屏',
+    filterPh: '页内高亮过滤…', filterOnly: '仅看匹配行',
+    phTitle: '📖 日志在线阅读器',
+    phTip1: '点击左侧文件开始预览（<code>.log</code> / <code>.bad</code> / <code>.out</code> / <code>.dmesg</code> / <code>.full</code> / <code>.json</code> / <code>.txt</code> …）',
+    phTip2: '🔍 双模式检索：目录项/whiteboard（如 <kbd>6.12 ext4</kbd>）与文件内容（如 <kbd>Call Trace</kbd>、<kbd>BUG:</kbd>、<kbd>FAILED</kbd>）',
+    phTip3: '⌨️ 快捷键：<kbd>/</kbd> 聚焦搜索框 · <kbd>Esc</kbd> 退出搜索返回目录 · <kbd>Enter</kbd> 搜索',
+    phTip4: '⚠️ 大文件自动截断预览（前 128KB + 末尾 384KB），中段随滚动逐段加载',
+    phTip5: '🧩 拖动中间分隔条调整宽度，或点击「全屏」最大化阅读器',
+    bannerBinary: '⚠ 二进制文件（{size}），无法在线预览，请下载查看',
+    bannerTrunc: '⚠ 文件过大（{size}），已显示首尾；滚动到中段占位行可逐段加载，或直接下载原文件',
+    bannerTruncNoGap: '⚠ 文件过大（{size}）',
+    btnLoadFull: '加载完整内容（≤10MB）',
+    fullNote: '超过 10MB 无法完整加载，建议下载原文件或用全文搜索定位问题行',
+    gapLoading: '⋯ 中段加载中…', gapRow: '⋯ 中间省略 {n} 行 — 点击或滚动到此加载',
+    themeAuto: '跟随系统', themeDark: '暗色', themeLight: '亮色',
+    toastTheme: '主题：{v}', toastNeedQuery: '请输入搜索关键词',
+    toastCopied: '已复制到剪贴板', toastCopyFailed: '复制失败，请手动选择复制',
+    toastDirFail: '加载目录失败：{e}', toastSearchFail: '搜索失败：{e}',
+    toastPreviewFail: '预览失败：{e}', toastChunkFail: '加载中段失败：{e}',
+    toastDiskFail: '磁盘信息不可用', diskText: '💾 可用 {avail} / 共 {total}',
+    diskTitle: '已用 {used}（{pct}%）· 可用 {avail}', rootCrumb: 'Root',
+  },
+  'en-US': {
+    modeName: 'Dirs/whiteboard', modeContent: 'File content',
+    regexToggle: '.* regex', regexToggleTitle: 'Regex search (RE2 syntax, case-insensitive by default)',
+    scopeCur: 'Current dir only', searchBtn: 'Search',
+    themeTitle: 'Switch theme', langTitle: 'Switch language（切换语言）',
+    sortName: 'Name', sortSize: 'Size', sortTime: 'Time',
+    wbTitle: 'Show/hide .whiteboard content under directories', dividerTitle: 'Drag to resize',
+    emptyDir: '(empty directory)', noMatch: 'No matches', loading: 'Loading…',
+    loadFailed: 'Load failed: {e}', searchResults: '{n} search results', capped: ' (cap reached)',
+    matchesCount: '{n} matches', zipBtn: 'Zip .zip', downloadBtn: 'Download',
+    crumbSearch: 'Search: {q}', crumbRootTitle: 'Back to root',
+    phNameKw: 'Search dirs/whiteboard (e.g. 6.12 ext4, rmapbt=1), space-separated keywords',
+    phContentKw: 'Search file content (e.g. Call Trace, BUG:, FAILED)',
+    phNameRe: 'Regex search dirs/whiteboard (space-separated patterns, all must match, e.g. ^2026 nfs)',
+    phContentRe: 'Regex search file content (RE2 syntax, e.g. ext4.*(error|warn)), case-insensitive by default',
+    btnCopy: 'Copy', btnDownload: 'Download file', btnMax: 'Fullscreen', btnMaxOff: 'Exit fullscreen',
+    filterPh: 'Highlight filter…', filterOnly: 'Matches only',
+    phTitle: '📖 Log viewer',
+    phTip1: 'Click a file on the left to preview it (<code>.log</code> / <code>.bad</code> / <code>.out</code> / <code>.dmesg</code> / <code>.full</code> / <code>.json</code> / <code>.txt</code> …)',
+    phTip2: '🔍 Dual-mode search: dirs/whiteboard (e.g. <kbd>6.12 ext4</kbd>) and file content (e.g. <kbd>Call Trace</kbd>, <kbd>BUG:</kbd>, <kbd>FAILED</kbd>)',
+    phTip3: '⌨️ Shortcuts: <kbd>/</kbd> focus search · <kbd>Esc</kbd> exit search · <kbd>Enter</kbd> search',
+    phTip4: '⚠️ Large files show a truncated preview (first 128KB + last 384KB); the middle loads lazily as you scroll',
+    phTip5: '🧩 Drag the divider to resize, or use Fullscreen to maximize the viewer',
+    bannerBinary: '⚠ Binary file ({size}) — cannot preview, please download',
+    bannerTrunc: '⚠ Large file ({size}) — showing head and tail; scroll to the gap row to load the middle chunk by chunk, or download',
+    bannerTruncNoGap: '⚠ Large file ({size})',
+    btnLoadFull: 'Load full content (≤10MB)',
+    fullNote: 'Over 10 MB: cannot load fully — download the file or use full-text search',
+    gapLoading: '⋯ Loading middle…', gapRow: '⋯ {n} lines omitted — click or scroll here to load',
+    themeAuto: 'System', themeDark: 'Dark', themeLight: 'Light',
+    toastTheme: 'Theme: {v}', toastNeedQuery: 'Please enter search keywords',
+    toastCopied: 'Copied to clipboard', toastCopyFailed: 'Copy failed, please copy manually',
+    toastDirFail: 'Failed to load directory: {e}', toastSearchFail: 'Search failed: {e}',
+    toastPreviewFail: 'Preview failed: {e}', toastChunkFail: 'Failed to load middle: {e}',
+    toastDiskFail: 'Disk info unavailable', diskText: '💾 Free {avail} / Total {total}',
+    diskTitle: 'Used {used} ({pct}%) · Free {avail}', rootCrumb: 'Root',
+  },
+};
+// Saved preference wins; otherwise follow the browser language (unknown or
+// non-Chinese falls back to English).
+function detectLang() {
+  const saved = localStorage.getItem('smlog-lang');
+  if (saved === 'zh-CN' || saved === 'en-US') return saved;
+  return (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US';
+}
+let lang = detectLang();
+function t(key, params) {
+  let s = I18N[lang][key];
+  if (s === undefined) s = I18N['en-US'][key] || key;
+  if (params) for (const k in params) s = s.replace('{' + k + '}', params[k]);
+  return s;
+}
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach(e => { e.textContent = t(e.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-html]').forEach(e => { e.innerHTML = t(e.dataset.i18nHtml); });
+  document.querySelectorAll('[data-i18n-title]').forEach(e => { e.title = t(e.dataset.i18nTitle); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(e => { e.placeholder = t(e.dataset.i18nPh); });
+  $('#btnLang').textContent = '🌐 ' + (lang === 'zh-CN' ? '中文' : 'EN');
+  $('#btnMax').textContent = document.body.classList.contains('right-max') ? t('btnMaxOff') : t('btnMax');
+  updateSortButtons();
+  updatePlaceholder();
+  updateBanner();
+  renderCrumbs();
+  renderList();
+  refreshDisk();
 }
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function humanSize(n) {
@@ -298,21 +406,26 @@ $('#btnTheme').addEventListener('click', () => {
   const next = cur === 'auto' ? 'dark' : cur === 'dark' ? 'light' : 'auto';
   localStorage.setItem('smlog-theme', next);
   applyTheme();
-  toast('主题：' + (next === 'auto' ? '跟随系统' : next === 'dark' ? '暗色' : '亮色'));
+  toast(t('toastTheme', { v: next === 'auto' ? t('themeAuto') : next === 'dark' ? t('themeDark') : t('themeLight') }));
 });
 applyTheme();
+$('#btnLang').addEventListener('click', () => {
+  lang = lang === 'zh-CN' ? 'en-US' : 'zh-CN';
+  localStorage.setItem('smlog-lang', lang);
+  applyLang();
+});
 
 /* ---------- Breadcrumbs ---------- */
 function renderCrumbs() {
   const c = $('#crumbs');
   c.textContent = '';
-  const root = el('span', 'crumb', 'Root');
-  root.title = '返回根目录';
+  const root = el('span', 'crumb', t('rootCrumb'));
+  root.title = t('crumbRootTitle');
   root.addEventListener('click', () => { exitSearch(); loadDir(''); });
   c.append(root);
   if (searchMode) {
     c.append(el('span', 'sep', '›'));
-    c.append(el('span', 'crumb cur', '搜索: ' + searchMode.query));
+    c.append(el('span', 'crumb cur', t('crumbSearch', { q: searchMode.query })));
   } else if (curPath) {
     const segs = curPath.split('/');
     let acc = '';
@@ -348,15 +461,15 @@ function renderList() {
   const list = $('#fileList');
   list.textContent = '';
   const title = searchMode
-    ? '搜索结果 ' + searchMode.data.count + ' 条' + (searchMode.data.limited ? '（已达上限）' : '')
-    : (curPath ? pathBase(curPath) : 'Root');
+    ? t('searchResults', { n: searchMode.data.count }) + (searchMode.data.limited ? t('capped') : '')
+    : (curPath ? pathBase(curPath) : t('rootCrumb'));
   const lt = $('#listTitle');
   lt.textContent = title;
   lt.title = searchMode ? searchMode.query : (curPath || '/');
 
   const items = sortedItems();
   if (!items.length) {
-    list.append(el('li', 'empty', searchMode ? '没有匹配结果' : '（空目录）'));
+    list.append(el('li', 'empty', searchMode ? t('noMatch') : t('emptyDir')));
     return;
   }
   // In search results, highlight matches in names and whiteboard text:
@@ -389,12 +502,12 @@ function renderList() {
     for (const t of (it.tags || [])) badges.append(el('span', 'tag tag-' + t, t));
     row.append(badges);
     const meta = el('span', 'meta');
-    if (it.matches) meta.textContent = it.matches.length + ' 处匹配';
+    if (it.matches) meta.textContent = t('matchesCount', { n: it.matches.length });
     else if (!it.is_dir) meta.textContent = humanSize(it.size);
     row.append(meta);
     row.append(el('span', 'meta time', it.mod_time || ''));
     const act = el('span', 'act');
-    const a = el('a', '', it.is_dir ? '打包下载 .zip' : '下载');
+    const a = el('a', '', it.is_dir ? t('zipBtn') : t('downloadBtn'));
     a.href = '/api/download?path=' + enc(it.rel_path);
     act.append(a);
     row.append(act);
@@ -419,7 +532,7 @@ function renderList() {
 async function loadDir(p) {
   const list = $('#fileList');
   list.textContent = '';
-  list.append(el('li', 'empty', '加载中…'));
+  list.append(el('li', 'empty', t('loading')));
   try {
     const data = await api('/api/list?path=' + enc(p || ''));
     curPath = data.current_path;
@@ -429,20 +542,26 @@ async function loadDir(p) {
     renderList();
     refreshDisk();
   } catch (e) {
-    toast('加载目录失败：' + e.message);
+    toast(t('toastDirFail', { e: e.message }));
     list.textContent = '';
-    list.append(el('li', 'empty', '加载失败：' + e.message));
+    list.append(el('li', 'empty', t('loadFailed', { e: e.message })));
   }
 }
 const sortDefaults = { name: true, size: false, time: false };
-const sortLabels = { name: '名称', size: '大小', time: '时间' };
+function updateSortButtons() {
+  document.querySelectorAll('#sorters button').forEach(b => {
+    const key = b.dataset.key;
+    const label = t(key === 'name' ? 'sortName' : key === 'size' ? 'sortSize' : 'sortTime');
+    b.textContent = label + (b.classList.contains('active') ? (sortAsc ? ' ↑' : ' ↓') : '');
+  });
+}
 document.querySelectorAll('#sorters button').forEach(btn => {
   btn.addEventListener('click', () => {
     const key = btn.dataset.key;
     if (sortKey === key) sortAsc = !sortAsc;
     else { sortKey = key; sortAsc = sortDefaults[key]; }
     document.querySelectorAll('#sorters button').forEach(b => b.classList.toggle('active', b === btn));
-    btn.textContent = sortLabels[key] + (sortAsc ? ' ↑' : ' ↓');
+    updateSortButtons();
     renderList();
   });
 });
@@ -460,26 +579,22 @@ async function refreshDisk() {
   try {
     const d = await api('/api/disk');
     const usedPct = d.total > 0 ? ((d.total - d.free) / d.total) * 100 : 0;
-    $('#diskText').textContent = '💾 可用 ' + humanSize(d.avail) + ' / 共 ' + humanSize(d.total);
-    $('#diskBar').title = '已用 ' + humanSize(d.used) + '（' + usedPct.toFixed(1) + '%）· 可用 ' + humanSize(d.avail);
+    $('#diskText').textContent = t('diskText', { avail: humanSize(d.avail), total: humanSize(d.total) });
+    $('#diskBar').title = t('diskTitle', { used: humanSize(d.used), pct: usedPct.toFixed(1), avail: humanSize(d.avail) });
     const fill = $('#diskUsed');
     fill.style.width = usedPct.toFixed(1) + '%';
     fill.classList.toggle('high', usedPct >= 90);
   } catch (e) {
-    $('#diskText').textContent = '💾 磁盘信息不可用';
+    $('#diskText').textContent = '💾 ' + t('toastDiskFail');
   }
 }
 
 /* ---------- Dual-mode search ---------- */
 function updatePlaceholder() {
   if (modeContent) {
-    $('#q').placeholder = regexOn
-      ? '正则搜索文件内容（RE2 语法，如 ext4.*(error|warn)），默认忽略大小写'
-      : '搜索文件内容（如 Call Trace、BUG:、FAILED）';
+    $('#q').placeholder = regexOn ? t('phContentRe') : t('phContentKw');
   } else {
-    $('#q').placeholder = regexOn
-      ? '正则搜索目录项/whiteboard（空格分隔多条正则，均需匹配，如 ^2026 nfs）'
-      : '搜索目录项/whiteboard（如 6.12 ext4、rmapbt=1），空格分隔多关键词';
+    $('#q').placeholder = regexOn ? t('phNameRe') : t('phNameKw');
   }
 }
 function setMode(content) {
@@ -500,7 +615,7 @@ function exitSearch() {
 }
 async function doSearch() {
   const q = $('#q').value.trim();
-  if (!q) { toast('请输入搜索关键词'); $('#q').focus(); return; }
+  if (!q) { toast(t('toastNeedQuery')); $('#q').focus(); return; }
   const mode = modeContent ? 'content' : 'name';
   const scope = $('#scopeCur').checked ? curPath : '';
   const url = '/api/search?q=' + enc(q) + '&mode=' + mode + '&scope=' + enc(scope)
@@ -521,7 +636,7 @@ async function doSearch() {
     renderCrumbs();
     renderList();
   } catch (e) {
-    toast('搜索失败：' + e.message);
+    toast(t('toastSearchFail', { e: e.message }));
   }
 }
 $('#btnSearch').addEventListener('click', doSearch);
@@ -534,7 +649,7 @@ function showViewer() {
   $('#placeholder').hidden = true;
   $('#vName').textContent = viewer.name;
   $('#vName').title = viewer.rel;
-  $('#vMeta').textContent = '加载中…';
+  $('#vMeta').textContent = t('loading');
 }
 async function openPreview(it) {
   // Content-search results carry match line numbers: jump to and highlight
@@ -557,15 +672,14 @@ async function fetchPreview(full) {
     const lineMeta = data.total_lines ? ' · ' + data.total_lines.toLocaleString() + ' 行' : '';
     $('#vMeta').textContent = humanSize(data.size) + lineMeta + ' · ' + (data.mod_time || '');
     const b = $('#truncBanner');
-    const bMsg = $('#truncMsg');
     if (data.is_binary) {
       segs = [];
       totalLines = 0;
       b.hidden = false;
-      bMsg.textContent = '⚠ 二进制文件（' + humanSize(data.size) + '），无法在线预览，请下载查看';
       $('#btnLoadFull').hidden = true;
       $('#btnBannerDownload').hidden = false;
       $('#fullNote').hidden = true;
+      updateBanner();
       renderViewport(true);
       return;
     }
@@ -582,16 +696,29 @@ async function fetchPreview(full) {
     }
     viewer.truncated = data.truncated;
     b.hidden = !data.truncated;
-    bMsg.textContent = hasGaps()
-      ? '⚠ 文件过大（' + humanSize(data.size) + '），已显示首尾；滚动到中段占位行可逐段加载，或直接下载原文件'
-      : '⚠ 文件过大（' + humanSize(data.size) + '）';
     $('#btnLoadFull').hidden = !(data.truncated && !full && data.size <= 10485760);
     $('#btnBannerDownload').hidden = false;
     $('#fullNote').hidden = !(data.truncated && full);
+    updateBanner();
     applyFilter();
     await jumpToTargets();
   } catch (e) {
     toast('预览失败：' + e.message);
+  }
+}
+
+// Refresh the banner text from the current viewer state (also used on
+// language switches).
+function updateBanner() {
+  const b = $('#truncBanner');
+  if (!viewer || b.hidden) return;
+  const m = $('#truncMsg');
+  if (fileMeta.is_binary) {
+    m.textContent = t('bannerBinary', { size: humanSize(fileMeta.size) });
+  } else if (viewer.truncated && hasGaps()) {
+    m.textContent = t('bannerTrunc', { size: humanSize(fileMeta.size) });
+  } else if (viewer.truncated) {
+    m.textContent = t('bannerTruncNoGap', { size: humanSize(fileMeta.size) });
   }
 }
 
@@ -621,7 +748,7 @@ async function loadMiddle(g) {
       $('#fullNote').hidden = true;
     }
   } catch (e) {
-    toast('加载中段失败：' + e.message);
+    toast(t('toastChunkFail', { e: e.message }));
   } finally {
     loadingGaps.delete(g.gapFrom);
   }
@@ -683,8 +810,8 @@ function rebuildViewLines() {
         viewLines.push({
           num: 0,
           text: loadingGaps.has(from)
-            ? '⋯ 中段加载中…'
-            : '⋯ 中间省略 ' + (to - from + 1).toLocaleString() + ' 行 — 点击或滚动到此加载',
+            ? t('gapLoading')
+            : t('gapRow', { n: (to - from + 1).toLocaleString() }),
           gap: true,
           gapFrom: from,
         });
@@ -772,7 +899,7 @@ $('#filterOnly').addEventListener('change', () => {
 
 /* Viewer action buttons */
 function copyText(t) {
-  const ok = () => toast('已复制到剪贴板');
+  const ok = () => toast(t('toastCopied'));
   if (navigator.clipboard && window.isSecureContext) {
     navigator.clipboard.writeText(t).then(ok).catch(() => fallbackCopy(t));
     return;
@@ -789,7 +916,7 @@ function fallbackCopy(t) {
   let done = false;
   try { done = document.execCommand('copy'); } catch (e) { /* ignore */ }
   ta.remove();
-  toast(done ? '已复制到剪贴板' : '复制失败，请手动选择复制');
+  toast(done ? t('toastCopied') : t('toastCopyFailed'));
 }
 function downloadUrl(rel) {
   const a = document.createElement('a');
@@ -807,7 +934,7 @@ $('#btnCopy').addEventListener('click', () => {
 $('#btnDownload').addEventListener('click', () => { if (viewer) downloadUrl(viewer.rel); });
 $('#btnMax').addEventListener('click', () => {
   const on = document.body.classList.toggle('right-max');
-  $('#btnMax').textContent = on ? '退出全屏' : '全屏';
+  $('#btnMax').textContent = on ? t('btnMaxOff') : t('btnMax');
   setTimeout(draw, 60); // redraw the viewport after layout change
 });
 $('#btnLoadFull').addEventListener('click', () => { if (viewer) fetchPreview(true); });
@@ -856,6 +983,7 @@ const sizer = el('div');
 sizer.id = 'sizer';
 viewerBody.insertBefore(sizer, viewerBody.firstChild);
 setMode(false);
+applyLang();
 loadDir('');
 refreshDisk();
 </script>
