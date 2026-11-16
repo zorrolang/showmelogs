@@ -146,6 +146,8 @@ body.right-max #left, body.right-max #divider { display: none; }
 .vrow.gap { justify-content: center; background: var(--hover); cursor: pointer; }
 .vrow.gap:hover { background: var(--sel); }
 .vrow.gap .lt { white-space: normal; color: var(--accent); font-weight: 600; padding: 0 10px; }
+.vrow.match { background: rgba(253,224,71,.24); }
+.vrow.match .ln { background: rgba(253,224,71,.24); }
 .ln { flex: none; width: 64px; text-align: right; padding-right: 14px; color: var(--dim); user-select: none; position: sticky; left: 0; background: var(--code-bg); }
 .vrow:hover .ln { background: var(--sel); }
 .lt { white-space: pre; padding-right: 12px; }
@@ -237,13 +239,12 @@ let sortKey = 'time';
 let sortAsc = false;         // time/size default desc, name default asc
 let searchMode = null;       // {query, mode, data}
 let modeContent = false;     // search mode toggle
-let viewer = null;           // {rel, name, truncated}
-let segs = [];               // loaded line segments [{start, lines:[...]}]
-let gap = null;              // omitted middle lines {from, to} (1-based)
+let viewer = null;           // {rel, name, truncated, targets}
+let segs = [];               // loaded line segments [{start, lines:[...]}], sorted
 let totalLines = 0;
-let gapLoading = false;
-let viewLines = [];          // display rows [{num, text, gap?}]
+let viewLines = [];          // display rows [{num, text, gap?, gapFrom?}]
 let fileMeta = {};
+const loadingGaps = new Set(); // gap start lines currently being fetched
 let filterText = '';
 let filterOnly = false;
 let rafId = 0;
@@ -536,7 +537,10 @@ function showViewer() {
   $('#vMeta').textContent = '加载中…';
 }
 async function openPreview(it) {
-  viewer = { rel: it.rel_path, name: it.name };
+  // Content-search results carry match line numbers: jump to and highlight
+  // them once the file is loaded.
+  const targets = (it.matches || []).map(m => m.line_num);
+  viewer = { rel: it.rel_path, name: it.name, targets: targets.length ? targets : null };
   showViewer();
   await fetchPreview(false);
 }
@@ -556,7 +560,6 @@ async function fetchPreview(full) {
     const bMsg = $('#truncMsg');
     if (data.is_binary) {
       segs = [];
-      gap = null;
       totalLines = 0;
       b.hidden = false;
       bMsg.textContent = '⚠ 二进制文件（' + humanSize(data.size) + '），无法在线预览，请下载查看';
@@ -567,54 +570,92 @@ async function fetchPreview(full) {
       return;
     }
     if (data.truncated) {
-      // Head + tail segments with an exact gap in between.
+      // Head + tail segments; omitted lines become gap rows automatically.
       segs = [
         { start: 1, lines: splitLines(data.head) },
         { start: data.tail_start_line, lines: splitLines(data.tail) },
       ];
-      gap = { from: data.head_end_line + 1, to: data.tail_start_line - 1 };
-      if (gap.from > gap.to) gap = null;
       totalLines = data.total_lines;
     } else {
       segs = [{ start: 1, lines: splitLines(data.content) }];
-      gap = null;
       totalLines = segs[0].lines.length;
     }
     viewer.truncated = data.truncated;
     b.hidden = !data.truncated;
-    bMsg.textContent = gap
+    bMsg.textContent = hasGaps()
       ? '⚠ 文件过大（' + humanSize(data.size) + '），已显示首尾；滚动到中段占位行可逐段加载，或直接下载原文件'
       : '⚠ 文件过大（' + humanSize(data.size) + '）';
     $('#btnLoadFull').hidden = !(data.truncated && !full && data.size <= 10485760);
     $('#btnBannerDownload').hidden = false;
     $('#fullNote').hidden = !(data.truncated && full);
     applyFilter();
+    await jumpToTargets();
   } catch (e) {
     toast('预览失败：' + e.message);
   }
 }
 
-// Fetch the next middle chunk and splice it between head and tail.
-async function loadMiddle() {
-  if (!gap || gapLoading) return;
-  gapLoading = true;
+// True when any adjacent segments are not contiguous.
+function hasGaps() {
+  for (let i = 0; i + 1 < segs.length; i++) {
+    if (segs[i].start + segs[i].lines.length < segs[i + 1].start) return true;
+  }
+  return false;
+}
+
+// Fetch the chunk starting at the gap and splice it into the right position.
+async function loadMiddle(g) {
+  if (loadingGaps.has(g.gapFrom)) return;
+  loadingGaps.add(g.gapFrom);
   draw(); // refresh the gap row to "loading"
   try {
-    const d = await api('/api/preview?path=' + enc(viewer.rel) + '&from_line=' + gap.from + '&max_bytes=' + 1048576);
-    segs.splice(segs.length - 1, 0, { start: d.start_line, lines: splitLines(d.content) });
-    gap = d.more ? { from: d.end_line + 1, to: gap.to } : null;
-    if (!gap) {
+    const d = await api('/api/preview?path=' + enc(viewer.rel) + '&from_line=' + g.gapFrom + '&max_bytes=' + 1048576);
+    const seg = { start: d.start_line, lines: splitLines(d.content) };
+    let pos = segs.length - 1;
+    for (let i = 0; i < segs.length; i++) {
+      if (segs[i].start > seg.start) { pos = i; break; }
+    }
+    segs.splice(pos, 0, seg);
+    if (!hasGaps()) {
       $('#truncBanner').hidden = true;
       $('#fullNote').hidden = true;
     }
-    gapLoading = false;
-    rebuildViewLines();
-    renderViewport(false); // keep the scroll position
   } catch (e) {
-    gapLoading = false;
     toast('加载中段失败：' + e.message);
-    draw();
+  } finally {
+    loadingGaps.delete(g.gapFrom);
   }
+  rebuildViewLines();
+  renderViewport(false); // keep the scroll position
+  draw();
+}
+
+// Center the view on a 1-based line number (virtual scrolling).
+function scrollToLine(n) {
+  renderViewport(false);
+  const idx = viewLines.findIndex(v => v.num === n);
+  if (idx < 0) return;
+  const top = Math.max(0, idx * LINE_H - Math.floor(viewerBody.clientHeight / 2));
+  viewerBody.scrollTop = top;
+  draw();
+}
+
+// After loading a file opened from a content-search result: make sure the
+// first match line is loaded (fetching the chunk around it when it lies in
+// an omitted middle), then scroll to it.
+async function jumpToTargets() {
+  const targets = viewer.targets;
+  if (!targets || !targets.length || !segs.length) return;
+  let first = Infinity;
+  for (const t of targets) if (t < first) first = t;
+  let covered = false;
+  for (const seg of segs) {
+    if (first >= seg.start && first < seg.start + seg.lines.length) { covered = true; break; }
+  }
+  if (!covered) {
+    await loadMiddle({ gapFrom: Math.max(1, first - 50) });
+  }
+  scrollToLine(first);
 }
 function buildHlRe() {
   const parts = [];
@@ -622,8 +663,8 @@ function buildHlRe() {
   parts.push('FAIL', 'ERROR', 'BUG:', 'Call Trace', 'WARNING', 'PANIC', 'Oops', 'Kernel panic');
   return new RegExp(parts.join('|'), 'gi');
 }
-// Rebuild the display rows from the loaded segments (inserting a gap row
-// between head and tail when lines are omitted).
+// Rebuild the display rows from the loaded segments, inserting a gap row
+// between any two segments that are not contiguous.
 function rebuildViewLines() {
   const f = filterText.trim().toLowerCase();
   viewLines = [];
@@ -634,14 +675,20 @@ function rebuildViewLines() {
       if (filterOnly && f && !text.toLowerCase().includes(f)) continue;
       viewLines.push({ num: seg.start + i, text: text });
     }
-    if (si === segs.length - 2 && gap) {
-      viewLines.push({
-        num: 0,
-        text: gapLoading
-          ? '⋯ 中段加载中…'
-          : '⋯ 中间省略 ' + (gap.to - gap.from + 1).toLocaleString() + ' 行 — 点击或滚动到此加载',
-        gap: true,
-      });
+    if (si < segs.length - 1) {
+      const next = segs[si + 1];
+      const from = seg.start + seg.lines.length;
+      const to = next.start - 1;
+      if (from <= to) {
+        viewLines.push({
+          num: 0,
+          text: loadingGaps.has(from)
+            ? '⋯ 中段加载中…'
+            : '⋯ 中间省略 ' + (to - from + 1).toLocaleString() + ' 行 — 点击或滚动到此加载',
+          gap: true,
+          gapFrom: from,
+        });
+      }
     }
   }
 }
@@ -663,7 +710,8 @@ function draw() {
   const last = Math.min(viewLines.length, Math.ceil((st + h) / LINE_H) + 60);
   const frag = document.createDocumentFragment();
   const re = buildHlRe();
-  let gapSeen = false;
+  const targets = viewer && viewer.targets && viewer.targets.length ? new Set(viewer.targets) : null;
+  const gaps = [];
   for (let i = first; i < last; i++) {
     const row = el('div', 'vrow');
     row.style.top = (i * LINE_H) + 'px';
@@ -672,19 +720,23 @@ function draw() {
       row.classList.add('gap');
       const lt = el('span', 'lt gap-text', item.text);
       row.append(lt);
-      row.addEventListener('click', loadMiddle);
+      row.addEventListener('click', () => loadMiddle(item));
       frag.append(row);
-      gapSeen = true;
+      gaps.push(item);
       continue;
     }
     row.append(el('span', 'ln', String(item.num)));
     const lt = el('span', 'lt');
     addHighlighted(lt, item.text, re);
     row.append(lt);
+    if (targets && targets.has(item.num)) row.classList.add('match');
     frag.append(row);
   }
   sizer.replaceChildren(frag);
-  if (gapSeen && !gapLoading) loadMiddle(); // auto-load when scrolled into view
+  // Auto-load gaps that scrolled into view.
+  for (const g of gaps) {
+    if (!loadingGaps.has(g.gapFrom)) loadMiddle(g);
+  }
 }
 function addHighlighted(parent, text, re) {
   if (!text) return;
