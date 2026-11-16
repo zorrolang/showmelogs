@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -196,6 +197,30 @@ func cleanRel(rel string) string {
 		return ""
 	}
 	return p
+}
+
+// handleDisk reports disk usage of the filesystem that holds the root
+// directory (avail/total, like `df -h <root>` but via syscall.Statfs, so no
+// external command or hardcoded path is involved).
+func (a *App) handleDisk(w http.ResponseWriter, r *http.Request) {
+	if !requireGET(w, r) {
+		return
+	}
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(a.root, &st); err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	total := int64(st.Bsize) * int64(st.Blocks)
+	free := int64(st.Bsize) * int64(st.Bfree)
+	avail := int64(st.Bsize) * int64(st.Bavail)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path":  a.root,
+		"total": total,
+		"free":  free,
+		"avail": avail,
+		"used":  total - free,
+	})
 }
 
 // readWhiteboard returns the content of the optional free-form .whiteboard

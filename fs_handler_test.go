@@ -763,3 +763,33 @@ func TestWhiteboard(t *testing.T) {
 		t.Errorf("combined name+whiteboard search count=%d, want 1", sresp.Count)
 	}
 }
+
+// TestDiskUsage: /api/disk reports the usage of the filesystem holding the
+// root directory.
+func TestDiskUsage(t *testing.T) {
+	app := newTestApp(t, nil)
+	w := doGet(t, app, "/api/disk")
+	if w.Code != http.StatusOK {
+		t.Fatalf("disk status %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Path  string `json:"path"`
+		Total int64  `json:"total"`
+		Free  int64  `json:"free"`
+		Avail int64  `json:"avail"`
+		Used  int64  `json:"used"`
+	}
+	decodeBody(t, w, &resp)
+	if resp.Path != app.root {
+		t.Errorf("path = %q, want %q", resp.Path, app.root)
+	}
+	if resp.Total <= 0 || resp.Avail <= 0 {
+		t.Errorf("total=%d avail=%d, want positive values", resp.Total, resp.Avail)
+	}
+	if resp.Avail > resp.Free {
+		t.Errorf("avail %d > free %d", resp.Avail, resp.Free)
+	}
+	if resp.Used != resp.Total-resp.Free {
+		t.Errorf("used = %d, want %d", resp.Used, resp.Total-resp.Free)
+	}
+}

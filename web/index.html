@@ -94,6 +94,10 @@ main { flex: 1; display: flex; min-height: 0; }
 .wb-toggle.active { border-color: var(--border); color: var(--accent); background: var(--hover); }
 #fileList { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
 #fileList .empty { padding: 28px 12px; text-align: center; color: var(--dim); font-size: 13px; }
+.disk-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--dim); white-space: nowrap; }
+.disk-track { flex: 1; height: 6px; border-radius: 3px; background: var(--hover); overflow: hidden; }
+.disk-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 3px; transition: width .3s; }
+.disk-fill.high { background: #ef4444; }
 .item { display: block; padding: 6px 12px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
 .item:hover { background: var(--hover); }
 .item .row { display: flex; align-items: center; gap: 8px; }
@@ -177,6 +181,10 @@ mark { background: var(--mark); color: var(--mark-text); border-radius: 2px; pad
       </div>
     </div>
     <ul id="fileList"></ul>
+    <div id="diskBar" class="disk-bar">
+      <span id="diskText">💾 加载中…</span>
+      <div class="disk-track"><div id="diskUsed" class="disk-fill"></div></div>
+    </div>
   </section>
   <div id="divider" title="拖动调整宽度"></div>
   <section id="right">
@@ -392,6 +400,7 @@ async function loadDir(p) {
     searchMode = null;
     renderCrumbs();
     renderList();
+    refreshDisk();
   } catch (e) {
     toast('加载目录失败：' + e.message);
     list.textContent = '';
@@ -418,6 +427,21 @@ $('#btnWB').addEventListener('click', () => {
   $('#btnWB').classList.toggle('active', wbOn);
   renderList();
 });
+
+/* Disk usage of the root filesystem (avail/total + usage bar) */
+async function refreshDisk() {
+  try {
+    const d = await api('/api/disk');
+    const usedPct = d.total > 0 ? ((d.total - d.free) / d.total) * 100 : 0;
+    $('#diskText').textContent = '💾 可用 ' + humanSize(d.avail) + ' / 共 ' + humanSize(d.total);
+    $('#diskBar').title = '已用 ' + humanSize(d.used) + '（' + usedPct.toFixed(1) + '%）· 可用 ' + humanSize(d.avail);
+    const fill = $('#diskUsed');
+    fill.style.width = usedPct.toFixed(1) + '%';
+    fill.classList.toggle('high', usedPct >= 90);
+  } catch (e) {
+    $('#diskText').textContent = '💾 磁盘信息不可用';
+  }
+}
 
 /* ---------- Dual-mode search ---------- */
 function setMode(content) {
@@ -657,6 +681,7 @@ sizer.id = 'sizer';
 viewerBody.insertBefore(sizer, viewerBody.firstChild);
 setMode(false);
 loadDir('');
+refreshDisk();
 </script>
 </body>
 </html>

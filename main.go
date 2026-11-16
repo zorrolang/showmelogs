@@ -174,6 +174,7 @@ func (a *App) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", a.handleIndex)
 	mux.HandleFunc("/api/list", a.handleList)
+	mux.HandleFunc("/api/disk", a.handleDisk)
 	mux.HandleFunc("/api/search", a.handleSearch)
 	mux.HandleFunc("/api/preview", a.handlePreview)
 	mux.HandleFunc("/api/download", a.handleDownload)

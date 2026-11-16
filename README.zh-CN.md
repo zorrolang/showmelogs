@@ -163,6 +163,7 @@ sudo systemctl status smlog
 | `GET /api/search?q=<kw>&mode=name\|content&scope=<rel>` | 双模式检索；`q` 空格分隔多关键词（需全部匹配、忽略大小写）；`mode=name` 同时匹配目录下 `.whiteboard` 内容；`scope` 为空搜全根目录 |
 | `GET /api/preview?path=<rel>&full=<bool>` | 文本预览；`is_binary` 标记二进制；>512KB 截断返回并带 `truncated`；`full=1` 完整加载（上限 10MB） |
 | `GET /api/download?path=<rel>` | 文件：原样下载（支持 Range）；目录：流式 ZIP 打包 |
+| `GET /api/disk` | 根目录所在文件系统的占用情况（`total` / `free` / `avail` / `used`，`syscall.Statfs` 实现）；左侧面板底部显示「可用/总量」用量条 |
 
 ## 开发与调优前端
 

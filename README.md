@@ -176,6 +176,7 @@ All endpoints accept `GET` only; errors are returned as
 | `GET /api/search?q=<kw>&mode=name\|content&scope=<rel>` | Dual-mode search; `q` is space-separated keywords (all must match, case-insensitive); name mode also matches per-dir `.whiteboard` content; empty `scope` searches the whole root |
 | `GET /api/preview?path=<rel>&full=<bool>` | Text preview; `is_binary` flags binaries; >512 KB returns truncated content with `truncated`; `full=1` loads complete content (up to 10 MB) |
 | `GET /api/download?path=<rel>` | File: served as-is (Range supported); directory: streaming ZIP |
+| `GET /api/disk` | Disk usage of the filesystem holding the root (`total` / `free` / `avail` / `used`, via `syscall.Statfs`); shown as an avail/total bar at the bottom of the left panel |
 
 ## Developing and tuning the UI
 
