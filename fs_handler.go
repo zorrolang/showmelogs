@@ -5,6 +5,7 @@ package main
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -17,7 +18,9 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -32,12 +35,10 @@ const (
 	whiteboardFileName = ".whiteboard" // optional free-form metadata file in a result dir
 	whiteboardMaxBytes = 4096          // max whiteboard bytes surfaced to the UI
 
+	chunkDefaultBytes = 1 << 20 // default chunk size for lazy middle loading
+
 	timeLayout = "2006-01-02 15:04:05"
 )
-
-// previewSeparator marks the omitted middle part of a truncated preview
-// (referenced by tests).
-const previewSeparator = "\n\n========== [showmelogs] 文件过大，中间部分已省略（点击“加载完整内容”或下载原文件查看全部） ==========\n\n"
 
 // boolParam parses a boolean query parameter ("1", "true", "yes").
 func boolParam(s string) bool {
@@ -400,32 +401,128 @@ func isBinaryFile(p string) (bool, error) {
 	return isBinaryData(buf[:n]), nil
 }
 
-// readHeadTail reads the first previewHeadBytes and the last previewTailBytes
-// of a file, joined by the separator line.
-func readHeadTail(p string, size int64) (string, error) {
+// lineIndex caches the byte offsets of every line start in a file, enabling
+// O(1) line-based chunk reads and a total line count. A single entry is kept
+// (keyed by path+size+mtime), so memory cost is bounded by the one file
+// currently being paged through (~4-8 MB per 100 MB log, released when
+// another file replaces it).
+type lineIndex struct {
+	path    string
+	size    int64
+	mtime   time.Time
+	offsets []int64 // offsets[i] = byte offset of line i+1
+}
+
+var (
+	lineIdxMu    sync.Mutex
+	lineIdxCache *lineIndex
+)
+
+// buildLineIndex streams through the file once to record every line start.
+func buildLineIndex(p string, fi os.FileInfo) (*lineIndex, error) {
 	f, err := os.Open(p)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer f.Close()
-	head := make([]byte, previewHeadBytes)
-	n, _ := io.ReadFull(f, head)
-	off := size - previewTailBytes
-	if off < 0 {
-		off = 0
+	idx := &lineIndex{path: p, size: fi.Size(), mtime: fi.ModTime()}
+	idx.offsets = append(idx.offsets, 0)
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), searchMaxLine)
+	off := int64(0)
+	for sc.Scan() {
+		off += int64(len(sc.Bytes())) + 1 // +1 for the newline
+		idx.offsets = append(idx.offsets, off)
 	}
-	if _, err := f.Seek(off, io.SeekStart); err != nil {
-		return "", err
+	// The last appended entry is the end of the final line, not a line
+	// start: drop it so len(offsets) == number of lines.
+	if len(idx.offsets) > 1 {
+		idx.offsets = idx.offsets[:len(idx.offsets)-1]
 	}
-	tail, err := io.ReadAll(io.LimitReader(f, previewTailBytes+1))
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return idx, nil
+}
+
+// getLineIndex returns the cached index for p when still fresh (same path,
+// size and mtime), otherwise builds and caches a new one.
+func getLineIndex(p string, fi os.FileInfo) (*lineIndex, error) {
+	lineIdxMu.Lock()
+	defer lineIdxMu.Unlock()
+	if lineIdxCache != nil && lineIdxCache.path == p &&
+		lineIdxCache.size == fi.Size() && lineIdxCache.mtime.Equal(fi.ModTime()) {
+		return lineIdxCache, nil
+	}
+	idx, err := buildLineIndex(p, fi)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(head[:n]) + previewSeparator + string(tail), nil
+	lineIdxCache = idx
+	return idx, nil
+}
+
+// readChunk returns the complete lines [from, endLine] (1-based, inclusive),
+// starting at the line's byte offset and covering as many lines as fit in
+// maxBytes. A single line larger than maxBytes is still returned whole, up to
+// searchMaxLine; beyond that it is cut (pathological inputs only).
+func (idx *lineIndex) readChunk(f *os.File, from int, maxBytes int64) (content string, endLine int, more bool, err error) {
+	L := len(idx.offsets)
+	if from < 1 || from > L {
+		return "", 0, false, fmt.Errorf("from_line %d out of range [1,%d]", from, L)
+	}
+	// lineEnd returns the byte offset just past line i (0-based index).
+	lineEnd := func(i int) int64 {
+		if i+1 < L {
+			return idx.offsets[i+1]
+		}
+		return idx.size
+	}
+	start := idx.offsets[from-1]
+	e := from - 1 // 0-based index of the last line to include
+	for e < L-1 && lineEnd(e+1)-start <= maxBytes {
+		e++
+	}
+	if e == from-1 && e < L-1 {
+		// The first line alone exceeds maxBytes.
+		if lineEnd(e)-start <= searchMaxLine {
+			e++ // still fits the hard cap: include it whole
+		} else {
+			// Oversized single line: cut it at the hard cap.
+			b, err := sliceFile(f, start, start+searchMaxLine)
+			if err != nil {
+				return "", 0, false, err
+			}
+			return string(b), from, true, nil
+		}
+	}
+	b, err := sliceFile(f, start, lineEnd(e))
+	if err != nil {
+		return "", 0, false, err
+	}
+	return string(b), e + 1, e+1 < L, nil
+}
+
+// sliceFile reads [start, end) from f.
+func sliceFile(f *os.File, start, end int64) ([]byte, error) {
+	b := make([]byte, end-start)
+	if _, err := f.ReadAt(b, start); err != nil && err != io.EOF {
+		return nil, err
+	}
+	return b, nil
 }
 
 // handlePreview powers the split-screen reader: binary detection, truncated
-// previews beyond 512 KB, full loads up to 10 MB.
+// head+tail previews beyond 512 KB (with lazy middle chunks via from_line),
+// and full loads up to 10 MB.
+//
+// Response shapes:
+//   - small file / full load: {"truncated": false, "content": ...}
+//   - big file: {"truncated": true, "head": ..., "tail": ...,
+//     "head_end_line", "tail_start_line", "total_lines"} — the frontend can
+//     fetch the omitted middle with from_line/max_bytes, line numbers stay
+//     exact thanks to the line index.
+//   - chunk: {"start_line", "end_line", "total_lines", "more", "content"}
 func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 	if !requireGET(w, r) {
 		return
@@ -474,30 +571,53 @@ func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	resp["is_binary"] = false
 
+	// Chunk mode: serve a line range for lazy middle loading.
+	if fl := r.URL.Query().Get("from_line"); fl != "" {
+		from, err := strconv.Atoi(fl)
+		if err != nil || from < 1 {
+			writeAPIError(w, errBadRequest("invalid from_line"))
+			return
+		}
+		maxBytes := int64(chunkDefaultBytes)
+		if mb := r.URL.Query().Get("max_bytes"); mb != "" {
+			v, err := strconv.ParseInt(mb, 10, 64)
+			if err != nil || v < 1024 || v > 16<<20 {
+				writeAPIError(w, errBadRequest("invalid max_bytes"))
+				return
+			}
+			maxBytes = v
+		}
+		idx, err := getLineIndex(full, fi)
+		if err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		f, err := os.Open(full)
+		if err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		defer f.Close()
+		content, endLine, more, err := idx.readChunk(f, from, maxBytes)
+		if err != nil {
+			writeAPIError(w, errBadRequest(err.Error()))
+			return
+		}
+		resp["start_line"] = from
+		resp["end_line"] = endLine
+		resp["total_lines"] = len(idx.offsets)
+		resp["more"] = more
+		resp["content"] = content
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
 	fullReq := boolParam(r.URL.Query().Get("full"))
 	size := fi.Size()
 
 	switch {
-	case fullReq && size > previewFullMax:
-		// Over 10 MB: full load is unavailable, fall back to truncated preview.
-		content, err := readHeadTail(full, size)
-		if err != nil {
-			writeAPIError(w, err)
-			return
-		}
-		resp["truncated"] = true
-		resp["note"] = "file exceeds 10MB full-load limit"
-		resp["content"] = content
-	case !fullReq && size > previewTruncateSize:
-		// Default: >512 KB reads first 128 KB + last 384 KB.
-		content, err := readHeadTail(full, size)
-		if err != nil {
-			writeAPIError(w, err)
-			return
-		}
-		resp["truncated"] = true
-		resp["content"] = content
-	default:
+	case fullReq && size <= previewFullMax:
+		// Full load within the 10 MB cap.
 		b, err := os.ReadFile(full)
 		if err != nil {
 			writeAPIError(w, err)
@@ -505,6 +625,56 @@ func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 		}
 		resp["truncated"] = false
 		resp["content"] = string(b)
+	case !fullReq && size <= previewTruncateSize:
+		// Small files are returned whole.
+		b, err := os.ReadFile(full)
+		if err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		resp["truncated"] = false
+		resp["content"] = string(b)
+	default:
+		// Big file: head chunk + tail chunk with gap metadata (also the
+		// fallback when a full load is requested beyond the 10 MB cap).
+		idx, err := getLineIndex(full, fi)
+		if err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		f, err := os.Open(full)
+		if err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		defer f.Close()
+		head, headEnd, _, err := idx.readChunk(f, 1, previewHeadBytes)
+		if err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		// Tail: first line whose offset reaches size-previewTailBytes.
+		tailStart := 1
+		for i, off := range idx.offsets {
+			if off >= size-previewTailBytes {
+				tailStart = i + 1
+				break
+			}
+		}
+		tail, _, _, err := idx.readChunk(f, tailStart, previewTailBytes)
+		if err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		resp["truncated"] = true
+		resp["head"] = head
+		resp["tail"] = tail
+		resp["head_end_line"] = headEnd
+		resp["tail_start_line"] = tailStart
+		resp["total_lines"] = len(idx.offsets)
+		if fullReq && size > previewFullMax {
+			resp["note"] = "file exceeds 10MB full-load limit"
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

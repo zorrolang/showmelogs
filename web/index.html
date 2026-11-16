@@ -143,6 +143,9 @@ body.right-max #left, body.right-max #divider { display: none; }
 #sizer { position: relative; width: 100%; }
 .vrow { position: absolute; left: 0; height: 18px; display: flex; width: max-content; min-width: 100%; }
 .vrow:hover { background: var(--sel); }
+.vrow.gap { justify-content: center; background: var(--hover); cursor: pointer; }
+.vrow.gap:hover { background: var(--sel); }
+.vrow.gap .lt { white-space: normal; color: var(--accent); font-weight: 600; padding: 0 10px; }
 .ln { flex: none; width: 64px; text-align: right; padding-right: 14px; color: var(--dim); user-select: none; position: sticky; left: 0; background: var(--code-bg); }
 .vrow:hover .ln { background: var(--sel); }
 .lt { white-space: pre; padding-right: 12px; }
@@ -235,8 +238,11 @@ let sortAsc = false;         // time/size default desc, name default asc
 let searchMode = null;       // {query, mode, data}
 let modeContent = false;     // search mode toggle
 let viewer = null;           // {rel, name, truncated}
-let rawLines = [];           // all lines of the current file (possibly truncated)
-let viewLines = [];          // filtered display lines [{num, text}]
+let segs = [];               // loaded line segments [{start, lines:[...]}]
+let gap = null;              // omitted middle lines {from, to} (1-based)
+let totalLines = 0;
+let gapLoading = false;
+let viewLines = [];          // display rows [{num, text, gap?}]
 let fileMeta = {};
 let filterText = '';
 let filterOnly = false;
@@ -534,16 +540,24 @@ async function openPreview(it) {
   showViewer();
   await fetchPreview(false);
 }
+function splitLines(s) {
+  const a = s.split('\n');
+  if (a.length && a[a.length - 1] === '') a.pop(); // trailing newline
+  return a;
+}
+
 async function fetchPreview(full) {
   try {
     const data = await api('/api/preview?path=' + enc(viewer.rel) + (full ? '&full=1' : ''));
     fileMeta = data;
-    $('#vMeta').textContent = humanSize(data.size) + ' · ' + (data.mod_time || '');
+    const lineMeta = data.total_lines ? ' · ' + data.total_lines.toLocaleString() + ' 行' : '';
+    $('#vMeta').textContent = humanSize(data.size) + lineMeta + ' · ' + (data.mod_time || '');
     const b = $('#truncBanner');
     const bMsg = $('#truncMsg');
     if (data.is_binary) {
-      rawLines = [];
-      viewLines = [];
+      segs = [];
+      gap = null;
+      totalLines = 0;
       b.hidden = false;
       bMsg.textContent = '⚠ 二进制文件（' + humanSize(data.size) + '），无法在线预览，请下载查看';
       $('#btnLoadFull').hidden = true;
@@ -552,16 +566,54 @@ async function fetchPreview(full) {
       renderViewport(true);
       return;
     }
-    rawLines = data.content.split('\n');
+    if (data.truncated) {
+      // Head + tail segments with an exact gap in between.
+      segs = [
+        { start: 1, lines: splitLines(data.head) },
+        { start: data.tail_start_line, lines: splitLines(data.tail) },
+      ];
+      gap = { from: data.head_end_line + 1, to: data.tail_start_line - 1 };
+      if (gap.from > gap.to) gap = null;
+      totalLines = data.total_lines;
+    } else {
+      segs = [{ start: 1, lines: splitLines(data.content) }];
+      gap = null;
+      totalLines = segs[0].lines.length;
+    }
     viewer.truncated = data.truncated;
     b.hidden = !data.truncated;
-    bMsg.textContent = '⚠ 文件过大（' + humanSize(data.size) + '），仅显示首尾部分（前 128KB + 末尾 384KB）';
-    $('#btnLoadFull').hidden = !(data.truncated && !full);
+    bMsg.textContent = gap
+      ? '⚠ 文件过大（' + humanSize(data.size) + '），已显示首尾；滚动到中段占位行可逐段加载，或直接下载原文件'
+      : '⚠ 文件过大（' + humanSize(data.size) + '）';
+    $('#btnLoadFull').hidden = !(data.truncated && !full && data.size <= 10485760);
     $('#btnBannerDownload').hidden = false;
     $('#fullNote').hidden = !(data.truncated && full);
     applyFilter();
   } catch (e) {
     toast('预览失败：' + e.message);
+  }
+}
+
+// Fetch the next middle chunk and splice it between head and tail.
+async function loadMiddle() {
+  if (!gap || gapLoading) return;
+  gapLoading = true;
+  draw(); // refresh the gap row to "loading"
+  try {
+    const d = await api('/api/preview?path=' + enc(viewer.rel) + '&from_line=' + gap.from + '&max_bytes=' + 1048576);
+    segs.splice(segs.length - 1, 0, { start: d.start_line, lines: splitLines(d.content) });
+    gap = d.more ? { from: d.end_line + 1, to: gap.to } : null;
+    if (!gap) {
+      $('#truncBanner').hidden = true;
+      $('#fullNote').hidden = true;
+    }
+    gapLoading = false;
+    rebuildViewLines();
+    renderViewport(false); // keep the scroll position
+  } catch (e) {
+    gapLoading = false;
+    toast('加载中段失败：' + e.message);
+    draw();
   }
 }
 function buildHlRe() {
@@ -570,14 +622,31 @@ function buildHlRe() {
   parts.push('FAIL', 'ERROR', 'BUG:', 'Call Trace', 'WARNING', 'PANIC', 'Oops', 'Kernel panic');
   return new RegExp(parts.join('|'), 'gi');
 }
-function applyFilter() {
+// Rebuild the display rows from the loaded segments (inserting a gap row
+// between head and tail when lines are omitted).
+function rebuildViewLines() {
   const f = filterText.trim().toLowerCase();
   viewLines = [];
-  for (let i = 0; i < rawLines.length; i++) {
-    const text = rawLines[i];
-    if (filterOnly && f && !text.toLowerCase().includes(f)) continue;
-    viewLines.push({ num: i + 1, text: text });
+  for (let si = 0; si < segs.length; si++) {
+    const seg = segs[si];
+    for (let i = 0; i < seg.lines.length; i++) {
+      const text = seg.lines[i];
+      if (filterOnly && f && !text.toLowerCase().includes(f)) continue;
+      viewLines.push({ num: seg.start + i, text: text });
+    }
+    if (si === segs.length - 2 && gap) {
+      viewLines.push({
+        num: 0,
+        text: gapLoading
+          ? '⋯ 中段加载中…'
+          : '⋯ 中间省略 ' + (gap.to - gap.from + 1).toLocaleString() + ' 行 — 点击或滚动到此加载',
+        gap: true,
+      });
+    }
   }
+}
+function applyFilter() {
+  rebuildViewLines();
   renderViewport(true);
 }
 function renderViewport(reset) {
@@ -594,16 +663,28 @@ function draw() {
   const last = Math.min(viewLines.length, Math.ceil((st + h) / LINE_H) + 60);
   const frag = document.createDocumentFragment();
   const re = buildHlRe();
+  let gapSeen = false;
   for (let i = first; i < last; i++) {
     const row = el('div', 'vrow');
     row.style.top = (i * LINE_H) + 'px';
-    row.append(el('span', 'ln', String(viewLines[i].num)));
+    const item = viewLines[i];
+    if (item.gap) {
+      row.classList.add('gap');
+      const lt = el('span', 'lt gap-text', item.text);
+      row.append(lt);
+      row.addEventListener('click', loadMiddle);
+      frag.append(row);
+      gapSeen = true;
+      continue;
+    }
+    row.append(el('span', 'ln', String(item.num)));
     const lt = el('span', 'lt');
-    addHighlighted(lt, viewLines[i].text, re);
+    addHighlighted(lt, item.text, re);
     row.append(lt);
     frag.append(row);
   }
   sizer.replaceChildren(frag);
+  if (gapSeen && !gapLoading) loadMiddle(); // auto-load when scrolled into view
 }
 function addHighlighted(parent, text, re) {
   if (!text) return;
@@ -665,7 +746,12 @@ function downloadUrl(rel) {
   a.click();
   a.remove();
 }
-$('#btnCopy').addEventListener('click', () => { if (rawLines.length || viewer) copyText(rawLines.join('\n')); });
+$('#btnCopy').addEventListener('click', () => {
+  if (!segs.length) return;
+  const all = [];
+  for (const seg of segs) all.push(...seg.lines);
+  copyText(all.join('\n'));
+});
 $('#btnDownload').addEventListener('click', () => { if (viewer) downloadUrl(viewer.rel); });
 $('#btnMax').addEventListener('click', () => {
   const on = document.body.classList.toggle('right-max');

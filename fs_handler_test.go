@@ -453,25 +453,38 @@ func TestSearchContentMode(t *testing.T) {
 	}
 }
 
-// TestPreviewTruncation: >512KB files get head+tail previews; full loads work
-// up to 10 MB.
+// TestPreviewTruncation: >512KB files get head+tail previews with gap
+// metadata; the middle is fetchable as line chunks; full loads work up to
+// 10 MB.
 func TestPreviewTruncation(t *testing.T) {
 	app := newTestApp(t, nil)
 	unit := "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\n"
 	const size600K = 600 * 1024
 	content := strings.Repeat(unit, size600K/len(unit)+1)[:size600K]
 	mustWriteFile(t, filepath.Join(app.root, "big.log"), content)
+	// content does not end with a newline: the last element is the final
+	// partial line, so len(allLines) == number of lines.
+	allLines := strings.Split(content, "\n")
+	total := len(allLines)
 
 	type prev struct {
-		IsBinary  bool   `json:"is_binary"`
-		Truncated bool   `json:"truncated"`
-		Content   string `json:"content"`
-		Size      int64  `json:"size"`
-		Note      string `json:"note"`
+		IsBinary      bool   `json:"is_binary"`
+		Truncated     bool   `json:"truncated"`
+		Content       string `json:"content"`
+		Head          string `json:"head"`
+		Tail          string `json:"tail"`
+		HeadEndLine   int    `json:"head_end_line"`
+		TailStartLine int    `json:"tail_start_line"`
+		TotalLines    int    `json:"total_lines"`
+		StartLine     int    `json:"start_line"`
+		EndLine       int    `json:"end_line"`
+		More          bool   `json:"more"`
+		Size          int64  `json:"size"`
+		Note          string `json:"note"`
 	}
 	var p prev
 
-	// Default: truncated preview (first 128KB + separator + last 384KB).
+	// Default: truncated head+tail with exact line metadata.
 	w := doGet(t, app, "/api/preview?path=big.log")
 	if w.Code != http.StatusOK {
 		t.Fatalf("preview status %d", w.Code)
@@ -486,18 +499,57 @@ func TestPreviewTruncation(t *testing.T) {
 	if p.Size != size600K {
 		t.Errorf("size = %d, want %d", p.Size, size600K)
 	}
-	wantLen := previewHeadBytes + len(previewSeparator) + previewTailBytes
-	if len(p.Content) != wantLen {
-		t.Errorf("content len = %d, want %d", len(p.Content), wantLen)
+	if len(p.Head) > previewHeadBytes || len(p.Tail) > previewTailBytes {
+		t.Errorf("head/tail caps violated: %d/%d", len(p.Head), len(p.Tail))
 	}
-	if !strings.HasPrefix(p.Content, content[:previewHeadBytes]) {
-		t.Error("head mismatch")
+	if !strings.HasPrefix(content, p.Head) {
+		t.Error("head must be the file prefix")
 	}
-	if !strings.HasSuffix(p.Content, content[size600K-previewTailBytes:]) {
-		t.Error("tail mismatch")
+	if !strings.HasSuffix(content, p.Tail) {
+		t.Error("tail must be the file suffix")
 	}
-	if !strings.Contains(p.Content, previewSeparator) {
-		t.Error("missing separator")
+	if p.TotalLines != total {
+		t.Errorf("total_lines = %d, want %d", p.TotalLines, total)
+	}
+	if p.HeadEndLine != strings.Count(p.Head, "\n") {
+		t.Errorf("head_end_line = %d, want %d", p.HeadEndLine, strings.Count(p.Head, "\n"))
+	}
+	// The tail's first line must be the line the server reported.
+	if !strings.HasPrefix(p.Tail, allLines[p.TailStartLine-1]) {
+		t.Errorf("tail must start with line %d (%q), got %q",
+			p.TailStartLine, allLines[p.TailStartLine-1], p.Tail[:30])
+	}
+	if p.TailStartLine-p.HeadEndLine <= 1 {
+		t.Errorf("gap missing: head ends at %d, tail starts at %d", p.HeadEndLine, p.TailStartLine)
+	}
+
+	// Chunk mode: fetch the middle, line numbers must be exact.
+	w = doGet(t, app, "/api/preview?path=big.log&from_line=100&max_bytes=65536")
+	if w.Code != http.StatusOK {
+		t.Fatalf("chunk status %d: %s", w.Code, w.Body.String())
+	}
+	decodeBody(t, w, &p)
+	if p.StartLine != 100 {
+		t.Errorf("start_line = %d, want 100", p.StartLine)
+	}
+	if !p.More {
+		t.Error("first chunk should have more=true")
+	}
+	if p.TotalLines != total {
+		t.Errorf("chunk total_lines = %d, want %d", p.TotalLines, total)
+	}
+	wantChunk := strings.Join(allLines[99:p.EndLine], "\n") + "\n"
+	if p.Content != wantChunk {
+		t.Errorf("chunk content mismatch (got %d bytes, want %d)", len(p.Content), len(wantChunk))
+	}
+	// Last chunk: more=false.
+	w = doGet(t, app, fmt.Sprintf("/api/preview?path=big.log&from_line=%d&max_bytes=65536", p.TotalLines))
+	decodeBody(t, w, &p)
+	if p.More {
+		t.Error("last chunk should have more=false")
+	}
+	if p.EndLine != p.TotalLines {
+		t.Errorf("end_line = %d, want %d", p.EndLine, p.TotalLines)
 	}
 
 	// full=true: 600KB < 10MB, so the complete content is returned.

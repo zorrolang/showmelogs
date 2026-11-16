@@ -23,7 +23,7 @@ personal use on Linux test machines running `xfstests`, `LTP`, `fio`,
 | Whiteboard files | Drop an optional free-form text file named `.whiteboard` (suite/kernel/OS/params, any content) into a result directory: it shows in a wrapped box under the directory row (toggle button `📝 whiteboard`) and is searchable in name mode |
 | Mode B: content search | Concurrent scan of plain-text logs (e.g. `Call Trace`, `BUG:`, `FAILED`), returning file path + line number + text snippet; skips hidden and binary files; files of any size are scanned (streaming, constant memory); max 5 matching lines per file, 100 files total |
 | Regex search | A `.* 正则` toggle upgrades either mode to RE2 patterns, case-insensitive by default — safe against catastrophic backtracking by construction. Name mode splits the query on whitespace into multiple ANDed patterns (each may hit the name or the whiteboard); content mode treats it as one pattern per line |
-| Split-screen preview | Click a text file to preview it with highlighting in the right pane; files >512 KB are truncated to "first 128 KB + last 384 KB" with a one-click full load (up to 10 MB); binary files prompt for download |
+| Split-screen preview | Click a text file to preview it with highlighting in the right pane; files >512 KB show the first ~128 KB and last ~384 KB with exact line numbers, and the omitted middle loads lazily in 1 MB chunks as you scroll — arbitrarily large logs stay browsable; files ≤10 MB can also be loaded whole; binary files prompt for download |
 | Zip download | Single files served as-is (HTTP Range / resume support); directories packed as streaming ZIPs on the fly with `archive/zip` — no temp files |
 | Security | Strictly read-only (no delete/modify endpoints), path-traversal blocked (`../` always 403), symlink-escape blocked, optional HTTP Basic Auth |
 
@@ -175,7 +175,7 @@ All endpoints accept `GET` only; errors are returned as
 | `GET /` | Embedded single-page frontend |
 | `GET /api/list?path=<rel>` | Directory listing (dirs first, mtime desc) with `current_path` / `parent_path` / `items[]` (incl. auto `tags` and optional `whiteboard` for dirs) |
 | `GET /api/search?q=<kw>&mode=name\|content&scope=<rel>&regex=0\|1` | Dual-mode search; `q` is space-separated keywords (all must match, case-insensitive); name mode also matches per-dir `.whiteboard` content; with `regex=1`, name mode splits `q` on whitespace into ANDed RE2 patterns (each may hit name or whiteboard) while content mode treats `q` as one pattern per line — both linear-time and case-insensitive by default (`(?-i)` to opt out locally); empty `scope` searches the whole root |
-| `GET /api/preview?path=<rel>&full=<bool>` | Text preview; `is_binary` flags binaries; >512 KB returns truncated content with `truncated`; `full=1` loads complete content (up to 10 MB) |
+| `GET /api/preview?path=<rel>&full=<bool>&from_line=<n>&max_bytes=<b>` | Text preview; `is_binary` flags binaries; big files return head/tail with exact line metadata (`head_end_line`/`tail_start_line`/`total_lines`); `from_line` serves a 1 MB line chunk for lazy middle loading; `full=1` loads complete content (up to 10 MB) |
 | `GET /api/download?path=<rel>` | File: served as-is (Range supported); directory: streaming ZIP |
 | `GET /api/disk` | Disk usage of the filesystem holding the root (`total` / `free` / `avail` / `used`, via `syscall.Statfs`); shown as an avail/total bar at the bottom of the left panel |
 

@@ -20,7 +20,7 @@
 | 白板文件 | 在结果目录里放一个自由格式纯文本文件 `.whiteboard`（套件/内核/系统/参数，内容随意）：目录行下方以自动换行小框展示（列表头部 `📝 whiteboard` 开关控制），名称搜索可命中其内容 |
 | 模式 B：文件内容检索 | 并发扫描纯文本日志（如 `Call Trace`、`BUG:`、`FAILED`），返回文件路径 + 行号 + 文本片段；自动跳过隐藏文件与二进制文件；任意大小文件均全文扫描（流式、内存恒定）；每文件最多 5 条匹配，总文件数上限 100 |
 | 正则搜索 | `.* 正则` 开关让两种模式都支持 RE2 正则，默认忽略大小写；Go 正则引擎为线性时间，天然免疫灾难性回溯。目录项模式按空格拆分为多条正则（均需匹配，可分别命中名称或 whiteboard）；内容模式为单条正则按行匹配 |
-| 分屏在线预览 | 点击文本文件在右侧分屏高亮预览；>512KB 自动截取「前 128KB + 末尾 384KB」，可一键加载完整内容（上限 10MB）；二进制文件提示直接下载 |
+| 分屏在线预览 | 点击文本文件在右侧分屏高亮预览；>512KB 显示前 ~128KB + 末尾 ~384KB（带精确行号），省略的中段随滚动按 1MB 行块懒加载——任意大小的日志都能看到深处；≤10MB 也可一键整体加载；二进制文件提示直接下载 |
 | 打包下载 | 单文件原样下载（HTTP Range 断点续传）；目录点击「打包下载」后端 `archive/zip` 流式实时打包，不产生临时磁盘文件 |
 | 安全 | 全程只读（无删除/修改接口）、路径穿越拦截（`../` 一律 403）、软链接越权拦截、可选 HTTP Basic Auth |
 
@@ -162,7 +162,7 @@ sudo systemctl status smlog
 | `GET /` | 内嵌前端单页 |
 | `GET /api/list?path=<rel>` | 目录列表（目录优先，mtime 倒序），返回 `current_path` / `parent_path` / `items[]`（含自动标签 `tags` 与目录可选的 `whiteboard` 字段） |
 | `GET /api/search?q=<kw>&mode=name\|content&scope=<rel>&regex=0\|1` | 双模式检索；`q` 空格分隔多关键词（需全部匹配、忽略大小写）；`mode=name` 同时匹配目录下 `.whiteboard` 内容；`regex=1` 时 `mode=name` 按空格拆分为多条正则（均需匹配，可分别命中名称或 whiteboard），`mode=content` 为单条正则按行匹配（均默认忽略大小写，`(?-i)` 局部关闭）；`scope` 为空搜全根目录 |
-| `GET /api/preview?path=<rel>&full=<bool>` | 文本预览；`is_binary` 标记二进制；>512KB 截断返回并带 `truncated`；`full=1` 完整加载（上限 10MB） |
+| `GET /api/preview?path=<rel>&full=<bool>&from_line=<n>&max_bytes=<b>` | 文本预览；`is_binary` 标记二进制；大文件返回首尾预览 + 精确行号元数据（`head_end_line`/`tail_start_line`/`total_lines`）；`from_line` 按行分块（默认 1MB）供中段懒加载；`full=1` 完整加载（上限 10MB） |
 | `GET /api/download?path=<rel>` | 文件：原样下载（支持 Range）；目录：流式 ZIP 打包 |
 | `GET /api/disk` | 根目录所在文件系统的占用情况（`total` / `free` / `avail` / `used`，`syscall.Statfs` 实现）；左侧面板底部显示「可用/总量」用量条 |
 
