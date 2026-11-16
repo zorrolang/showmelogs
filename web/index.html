@@ -155,7 +155,7 @@ mark { background: var(--mark); color: var(--mark-text); border-radius: 2px; pad
   <div class="search-area">
     <input id="q" type="text" placeholder="搜索目录/文件名（如 6.12 ext4），空格分隔多关键词" autocomplete="off">
     <div class="mode-switch" id="modeSwitch">
-      <button id="btnModeName" class="active">搜目录/文件名</button>
+      <button id="btnModeName" class="active">搜目录项/whiteboard</button>
       <button id="btnModeContent">搜文件内容</button>
     </div>
     <label class="scope"><input type="checkbox" id="scopeCur"> 仅搜当前目录</label>
@@ -338,12 +338,17 @@ function renderList() {
     list.append(el('li', 'empty', searchMode ? '没有匹配结果' : '（空目录）'));
     return;
   }
+  // In search results, highlight every keyword in names and whiteboard text.
+  const kws = searchMode ? searchMode.query.trim().split(/\s+/).filter(Boolean) : [];
+  const hlRe = kws.length ? new RegExp(kws.map(escapeRe).join('|'), 'gi') : null;
   for (const it of items) {
     const li = el('li', 'item' + (it.is_dir ? ' dir' : ''));
     const row = el('div', 'row');
     row.append(el('span', 'icon', it.is_dir ? '📁' : '📄'));
-    const name = el('span', 'name', it.name);
+    const name = el('span', 'name');
     name.title = it.rel_path;
+    if (hlRe) addHighlighted(name, it.name, hlRe);
+    else name.textContent = it.name;
     row.append(name);
     const badges = el('span', 'badges');
     for (const t of (it.tags || [])) badges.append(el('span', 'tag tag-' + t, t));
@@ -359,9 +364,13 @@ function renderList() {
     act.append(a);
     row.append(act);
     li.append(row);
-    if (wbOn && it.whiteboard) {
-      const box = el('div', 'wb', it.whiteboard);
+    // Whiteboard boxes: in search results always show (the match may come
+    // from the whiteboard itself); in plain listings honor the toggle.
+    if (it.whiteboard && (searchMode || wbOn)) {
+      const box = el('div', 'wb');
       box.title = it.whiteboard;
+      if (hlRe) addHighlighted(box, it.whiteboard, hlRe);
+      else box.textContent = it.whiteboard;
       li.append(box);
     }
     li.addEventListener('click', ev => {
@@ -417,7 +426,7 @@ function setMode(content) {
   $('#btnModeContent').classList.toggle('active', content);
   $('#q').placeholder = content
     ? '搜索文件内容（如 Call Trace、BUG:、FAILED）'
-    : '搜索目录/文件名（如 6.12 ext4），空格分隔多关键词';
+    : '搜索目录项/whiteboard（如 6.12 ext4、rmapbt=1），空格分隔多关键词';
 }
 $('#btnModeName').addEventListener('click', () => setMode(false));
 $('#btnModeContent').addEventListener('click', () => setMode(true));
