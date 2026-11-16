@@ -289,15 +289,37 @@ func TestSearchNameMode(t *testing.T) {
 			t.Errorf("q=%q rel=%q, want %q", c.q, resp.Results[0].RelPath, c.wantRel)
 		}
 	}
-	// Path matching: "6.12 xfs" hits 5 entries whose path contains both.
+	// Only the entry's own name is matched (not the full path): "6.12 xfs"
+	// hits the top dir and 002_6.12_xfs.out, but not generic/shared dirs or
+	// files living under a matching parent.
 	w := doGet(t, app, "/api/search?q=6.12+xfs&mode=name")
 	var resp struct {
 		Count   int    `json:"count"`
 		Results []item `json:"results"`
 	}
 	decodeBody(t, w, &resp)
-	if resp.Count != 5 {
-		t.Errorf("q=6.12 xfs count=%d, want 5 (%+v)", resp.Count, resp.Results)
+	if resp.Count != 2 {
+		t.Fatalf("q=6.12 xfs count=%d, want 2 (%+v)", resp.Count, resp.Results)
+	}
+	got := map[string]bool{}
+	for _, r := range resp.Results {
+		got[r.Name] = true
+	}
+	if !got["20261117_xfstests_6.12_xfs"] || !got["002_6.12_xfs.out"] {
+		t.Errorf("q=6.12 xfs results = %v, want the top dir and 002_6.12_xfs.out", got)
+	}
+	// Single keyword "6.12" must not list descendants of the matching dir.
+	w = doGet(t, app, "/api/search?q=6.12&mode=name")
+	decodeBody(t, w, &resp)
+	if resp.Count != 3 {
+		t.Fatalf("q=6.12 count=%d, want 3 (%+v)", resp.Count, resp.Results)
+	}
+	for _, r := range resp.Results {
+		switch r.Name {
+		case "20261117_xfstests_6.12_xfs", "001_6.12_ext4.out", "002_6.12_xfs.out":
+		default:
+			t.Errorf("q=6.12 unexpected result %q (descendants must not match)", r.Name)
+		}
 	}
 	// Scope limited to a subdirectory.
 	w = doGet(t, app, "/api/search?q=ext4&mode=name&scope=20261117_xfstests_6.12_xfs%2Fgeneric")

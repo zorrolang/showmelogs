@@ -118,8 +118,10 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	a.searchName(w, r, scope, kws)
 }
 
-// searchName concurrently walks the tree and matches entries whose root-
-// relative path contains every keyword (max 200 results).
+// searchName concurrently walks the tree and matches entries whose own
+// name (not the full path) contains every keyword (max 200 results).
+// Matching full paths floods the results with every descendant of a
+// matching directory, which users find imprecise.
 func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, kws []string) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -130,7 +132,7 @@ func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, k
 		limited bool
 	)
 	_ = a.walkConcurrent(ctx, scope, false, func(abs, rel string, d fs.DirEntry, real string, info fs.FileInfo) {
-		low := strings.ToLower(filepath.ToSlash(rel))
+		low := strings.ToLower(d.Name())
 		for _, kw := range kws {
 			if !strings.Contains(low, kw) {
 				return
