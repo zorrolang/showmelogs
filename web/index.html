@@ -287,11 +287,14 @@ function renderCrumbs() {
     const segs = curPath.split('/');
     let acc = '';
     segs.forEach(seg => {
-      acc = acc ? acc + '/' + seg : seg;
+      // Capture a per-iteration copy: closures over the shared `acc` would
+      // all navigate to the final (full) path.
+      const target = acc ? acc + '/' + seg : seg;
+      acc = target;
       c.append(el('span', 'sep', '›'));
       const cr = el('span', 'crumb', seg.length > 28 ? seg.slice(0, 26) + '…' : seg);
-      cr.title = acc;
-      cr.addEventListener('click', () => loadDir(acc));
+      cr.title = target;
+      cr.addEventListener('click', () => loadDir(target));
       c.append(cr);
     });
   }
