@@ -1,0 +1,10 @@
+# Build artifacts
+/smlog
+/smlog-linux-amd64
+/smlog-linux-arm64
+
+# Local test results directory (when ./test_results is used as -root)
+/test_results/
+
+# Project spec (not part of the repository)
+/SPEC.md

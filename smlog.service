@@ -1,0 +1,48 @@
+# showmelogs (smlog) systemd service template
+#
+# Deployment steps:
+#   1. sudo make install                    # or copy smlog to /usr/local/bin/ manually
+#   2. sudo cp smlog.service /etc/systemd/system/
+#   3. Edit User= and ExecStart= below (directory, port, credentials)
+#   4. sudo systemctl daemon-reload
+#   5. sudo systemctl enable --now smlog
+#   6. sudo systemctl status smlog
+#
+# For passwords with special characters, prefer an EnvironmentFile:
+#   EnvironmentFile=/etc/smlog/env
+#   (env contents like SMLOG_PASS=xxx; drop the -pass flag from ExecStart)
+
+[Unit]
+Description=showmelogs - lightweight test result archive and browser
+After=network.target
+
+[Service]
+Type=simple
+# Adjust: run-as user and group
+User=youruser
+Group=yourgroup
+# Adjust: results root, listen address, Basic Auth credentials (empty -pass = open access)
+ExecStart=/usr/local/bin/smlog \
+    -root /data/test_results \
+    -addr 0.0.0.0:8080 \
+    -user admin \
+    -pass CHANGE_ME
+# MADV_DONTNEED makes freed heap pages leave RSS immediately; combined with the
+# built-in idle FreeOSMemory reaper this keeps steady-state RSS near the real
+# footprint (a few MB), well below the 20 MB design goal.
+Environment=GODEBUG=madvdontneed=1
+Restart=on-failure
+RestartSec=5
+
+# Hardening: the service is strictly read-only
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+LimitNOFILE=65536
+
+# Optional: hard memory cap (normally far below this)
+# MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target
