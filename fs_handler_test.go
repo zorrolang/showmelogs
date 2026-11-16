@@ -702,3 +702,64 @@ func TestWalkSymlinkCycleSafe(t *testing.T) {
 		t.Fatal("search hung on symlink cycle")
 	}
 }
+
+// TestWhiteboard: optional free-form .whiteboard files in result dirs are
+// surfaced in listings (but not listed as entries themselves), searchable in
+// name mode, and capped at 4 KB.
+func TestWhiteboard(t *testing.T) {
+	app := newTestApp(t, nil)
+	wb := "kernel 6.12 rmapbt=1 localio=no\nnotes: first round"
+	mustWriteFile(t, filepath.Join(app.root, "run1", ".whiteboard"), wb)
+	mustWriteFile(t, filepath.Join(app.root, "run1", "check.log"), "log")
+	mustWriteFile(t, filepath.Join(app.root, "plain", "f.txt"), "x")
+	// Overlong whiteboard: capped at whiteboardMaxBytes.
+	mustWriteFile(t, filepath.Join(app.root, "long", ".whiteboard"), strings.Repeat("x", 8000))
+	mustWriteFile(t, filepath.Join(app.root, "long", "g.txt"), "x")
+
+	// Listing: whiteboard attached to dirs; the file itself is not an entry.
+	w := doGet(t, app, "/api/list?path=")
+	if w.Code != http.StatusOK {
+		t.Fatalf("list status %d", w.Code)
+	}
+	var resp struct {
+		Items []item `json:"items"`
+	}
+	decodeBody(t, w, &resp)
+	byName := map[string]item{}
+	for _, it := range resp.Items {
+		byName[it.Name] = it
+		if it.Name == whiteboardFileName {
+			t.Error(".whiteboard must not appear as a listing entry")
+		}
+	}
+	if got := byName["run1"].Whiteboard; got != wb {
+		t.Errorf("run1 whiteboard = %q, want %q", got, wb)
+	}
+	if got := byName["plain"].Whiteboard; got != "" {
+		t.Errorf("plain whiteboard = %q, want empty", got)
+	}
+	if got := byName["long"].Whiteboard; len(got) != whiteboardMaxBytes {
+		t.Errorf("long whiteboard len = %d, want %d", len(got), whiteboardMaxBytes)
+	}
+
+	// Name-mode search matches whiteboard content.
+	w = doGet(t, app, "/api/search?q="+url.QueryEscape("rmapbt=1")+"&mode=name")
+	var sresp struct {
+		Count   int    `json:"count"`
+		Results []item `json:"results"`
+	}
+	decodeBody(t, w, &sresp)
+	if sresp.Count != 1 || len(sresp.Results) != 1 {
+		t.Fatalf("whiteboard search count=%d, want 1 (%+v)", sresp.Count, sresp.Results)
+	}
+	r := sresp.Results[0]
+	if r.Name != "run1" || !strings.Contains(r.Whiteboard, "rmapbt=1") {
+		t.Errorf("result = %+v, want run1 with whiteboard content", r)
+	}
+	// Keywords may span the name and the whiteboard together.
+	w = doGet(t, app, "/api/search?q=run1+localio&mode=name")
+	decodeBody(t, w, &sresp)
+	if sresp.Count != 1 {
+		t.Errorf("combined name+whiteboard search count=%d, want 1", sresp.Count)
+	}
+}

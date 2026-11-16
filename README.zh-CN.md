@@ -16,7 +16,8 @@
 | --- | --- |
 | 通用文件浏览 | 任意层级目录浏览、面包屑导航、按名称/大小/时间排序 |
 | 标签徽章 | 自动识别 `FAIL` / `PASS` / `xfstests` / `LTP` / `fio` / `blktests`（按目录/文件名关键词，忽略大小写） |
-| 模式 A：目录/文件名检索 | 内存并发遍历目录树，多关键词空格分隔（如 `6.12 ext4`），毫秒级返回，上限 200 条 |
+| 模式 A：目录/文件名检索 | 内存并发遍历目录树，多关键词空格分隔（如 `6.12 ext4`），匹配条目名称与目录下可选的 `.whiteboard` 文件内容，毫秒级返回，上限 200 条 |
+| 白板文件 | 在结果目录里放一个自由格式纯文本文件 `.whiteboard`（套件/内核/系统/参数，内容随意）：目录行下方以自动换行小框展示（列表头部 `📝 whiteboard` 开关控制），名称搜索可命中其内容 |
 | 模式 B：文件内容检索 | 并发扫描纯文本日志（如 `Call Trace`、`BUG:`、`FAILED`），返回文件路径 + 行号 + 文本片段；自动跳过隐藏文件、二进制文件与 >20MB 的大文件；每文件最多 5 条匹配，总文件数上限 100 |
 | 分屏在线预览 | 点击文本文件在右侧分屏高亮预览；>512KB 自动截取「前 128KB + 末尾 384KB」，可一键加载完整内容（上限 10MB）；二进制文件提示直接下载 |
 | 打包下载 | 单文件原样下载（HTTP Range 断点续传）；目录点击「打包下载」后端 `archive/zip` 流式实时打包，不产生临时磁盘文件 |
@@ -87,6 +88,25 @@ SMLOG_PASS='s3cret!' ./smlog
 命名中包含 `fail` / `.bad` / `error` 会标红 `FAIL`，包含 `pass` 标绿 `PASS`，
 包含 `xfstests` / `ltp` / `fio` / `blktests` 自动显示对应徽章。
 
+### 白板元数据文件
+
+目录名保持简短（如 `20261117_nfs_rmapbt`），其余运行信息写进目录下自由格式的
+`.whiteboard` 纯文本文件：
+
+```text
+# /data/test_results/20261117_nfs_rmapbt/.whiteboard
+suite: xfstests
+kernel: 6.12.113-3.hs.490.el10.x86_64
+os: rockylinux10
+hammerspace: 5.3.1-1224
+params: rmapbt=1 localio=no cache/read=2 cache/write=4
+```
+
+- 内容展示在目录行下方的自动换行小框里（列表头部 `📝 whiteboard` 按钮开关，状态持久化）；
+- 名称搜索匹配「条目名称 + whiteboard」合并文本，搜 `rmapbt=1`、`hammerspace`
+  即可命中该目录，无需写进长目录名；
+- 文件可选、不会作为列表条目出现；超过 4KB 的内容仅展示截断（磁盘文件不受影响）。
+
 ### 用软链接整合不同位置的测试输出
 
 `xfstests` 的 `results/` 与 `LTP` 的 `output/` 往往不在同一目录，
@@ -138,8 +158,8 @@ sudo systemctl status smlog
 | 接口 | 说明 |
 | --- | --- |
 | `GET /` | 内嵌前端单页 |
-| `GET /api/list?path=<rel>` | 目录列表（目录优先，mtime 倒序），返回 `current_path` / `parent_path` / `items[]`（含自动标签 `tags`） |
-| `GET /api/search?q=<kw>&mode=name\|content&scope=<rel>` | 双模式检索；`q` 空格分隔多关键词（需全部匹配、忽略大小写）；`scope` 为空搜全根目录 |
+| `GET /api/list?path=<rel>` | 目录列表（目录优先，mtime 倒序），返回 `current_path` / `parent_path` / `items[]`（含自动标签 `tags` 与目录可选的 `whiteboard` 字段） |
+| `GET /api/search?q=<kw>&mode=name\|content&scope=<rel>` | 双模式检索；`q` 空格分隔多关键词（需全部匹配、忽略大小写）；`mode=name` 同时匹配目录下 `.whiteboard` 内容；`scope` 为空搜全根目录 |
 | `GET /api/preview?path=<rel>&full=<bool>` | 文本预览；`is_binary` 标记二进制；>512KB 截断返回并带 `truncated`；`full=1` 完整加载（上限 10MB） |
 | `GET /api/download?path=<rel>` | 文件：原样下载（支持 Range）；目录：流式 ZIP 打包 |
 

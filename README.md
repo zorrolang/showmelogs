@@ -19,7 +19,8 @@ personal use on Linux test machines running `xfstests`, `LTP`, `fio`,
 | --- | --- |
 | Generic browsing | Arbitrarily deep directory browsing, breadcrumb navigation, sort by name/size/time |
 | Tag badges | Automatic `FAIL` / `PASS` / `xfstests` / `LTP` / `fio` / `blktests` badges derived from directory/file name keywords (case-insensitive) |
-| Mode A: name search | Concurrent in-memory tree traversal; space-separated multi-keyword matching (e.g. `6.12 ext4`); millisecond responses; max 200 results |
+| Mode A: name search | Concurrent in-memory tree traversal; space-separated multi-keyword matching (e.g. `6.12 ext4`) against entry names and optional per-directory `.whiteboard` files; millisecond responses; max 200 results |
+| Whiteboard files | Drop an optional free-form text file named `.whiteboard` (suite/kernel/OS/params, any content) into a result directory: it shows in a wrapped box under the directory row (toggle button `📝 whiteboard`) and is searchable in name mode |
 | Mode B: content search | Concurrent scan of plain-text logs (e.g. `Call Trace`, `BUG:`, `FAILED`), returning file path + line number + text snippet; skips hidden files, binary files and files >20 MB; max 5 matching lines per file, 100 files total |
 | Split-screen preview | Click a text file to preview it with highlighting in the right pane; files >512 KB are truncated to "first 128 KB + last 384 KB" with a one-click full load (up to 10 MB); binary files prompt for download |
 | Zip download | Single files served as-is (HTTP Range / resume support); directories packed as streaming ZIPs on the fly with `archive/zip` — no temp files |
@@ -91,6 +92,29 @@ Names containing `fail` / `.bad` / `error` get a red `FAIL` badge, `pass` gets
 a green `PASS` badge, and `xfstests` / `ltp` / `fio` / `blktests` show their
 respective badges automatically.
 
+### Whiteboard metadata files
+
+Keep directory names short (e.g. `20261117_nfs_rmapbt`) and put the rest of
+the run information into a free-form `.whiteboard` text file inside the run
+directory:
+
+```text
+# /data/test_results/20261117_nfs_rmapbt/.whiteboard
+suite: xfstests
+kernel: 6.12.113-3.hs.490.el10.x86_64
+os: rockylinux10
+hammerspace: 5.3.1-1224
+params: rmapbt=1 localio=no cache/read=2 cache/write=4
+```
+
+- The content shows in a wrapped box under the directory row (toggle with the
+  `📝 whiteboard` button in the list header, persisted).
+- Name-mode search matches the concatenation of the entry name and its
+  whiteboard, so `rmapbt=1` or `hammerspace` finds the run even though the
+  directory name is short.
+- The file is optional and never listed as an entry itself; content beyond
+  4 KB is truncated for display (the file on disk is untouched).
+
 ### Merging scattered test outputs with symlinks
 
 `xfstests`' `results/` and `LTP`'s `output/` usually live in different places;
@@ -147,8 +171,8 @@ All endpoints accept `GET` only; errors are returned as
 | Endpoint | Description |
 | --- | --- |
 | `GET /` | Embedded single-page frontend |
-| `GET /api/list?path=<rel>` | Directory listing (dirs first, mtime desc) with `current_path` / `parent_path` / `items[]` (incl. auto `tags`) |
-| `GET /api/search?q=<kw>&mode=name\|content&scope=<rel>` | Dual-mode search; `q` is space-separated keywords (all must match, case-insensitive); empty `scope` searches the whole root |
+| `GET /api/list?path=<rel>` | Directory listing (dirs first, mtime desc) with `current_path` / `parent_path` / `items[]` (incl. auto `tags` and optional `whiteboard` for dirs) |
+| `GET /api/search?q=<kw>&mode=name\|content&scope=<rel>` | Dual-mode search; `q` is space-separated keywords (all must match, case-insensitive); name mode also matches per-dir `.whiteboard` content; empty `scope` searches the whole root |
 | `GET /api/preview?path=<rel>&full=<bool>` | Text preview; `is_binary` flags binaries; >512 KB returns truncated content with `truncated`; `full=1` loads complete content (up to 10 MB) |
 | `GET /api/download?path=<rel>` | File: served as-is (Range supported); directory: streaming ZIP |
 

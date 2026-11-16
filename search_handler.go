@@ -122,6 +122,10 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 // name (not the full path) contains every keyword (max 200 results).
 // Matching full paths floods the results with every descendant of a
 // matching directory, which users find imprecise.
+//
+// Directories may carry an optional free-form .whiteboard file; an entry
+// matches when all keywords appear in the concatenation of its name and
+// whiteboard text, and the whiteboard is included in the result.
 func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, kws []string) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -132,7 +136,15 @@ func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, k
 		limited bool
 	)
 	_ = a.walkConcurrent(ctx, scope, false, func(abs, rel string, d fs.DirEntry, real string, info fs.FileInfo) {
-		low := strings.ToLower(d.Name())
+		searchable := d.Name()
+		var wb string
+		if info.IsDir() {
+			wb = readWhiteboard(abs)
+			if wb != "" {
+				searchable += "\n" + wb
+			}
+		}
+		low := strings.ToLower(searchable)
 		for _, kw := range kws {
 			if !strings.Contains(low, kw) {
 				return
@@ -150,12 +162,13 @@ func (a *App) searchName(w http.ResponseWriter, r *http.Request, scope string, k
 			size = 0
 		}
 		results = append(results, item{
-			Name:    d.Name(),
-			RelPath: filepath.ToSlash(rel),
-			IsDir:   info.IsDir(),
-			Size:    size,
-			ModTime: info.ModTime().Format(timeLayout),
-			Tags:    detectTags(d.Name()),
+			Name:       d.Name(),
+			RelPath:    filepath.ToSlash(rel),
+			IsDir:      info.IsDir(),
+			Size:       size,
+			ModTime:    info.ModTime().Format(timeLayout),
+			Tags:       detectTags(d.Name()),
+			Whiteboard: wb,
 		})
 		if len(results) >= searchNameLimit {
 			limited = true

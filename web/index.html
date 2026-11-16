@@ -86,13 +86,18 @@ main { flex: 1; display: flex; min-height: 0; }
 #left { width: var(--split, 45%); min-width: 280px; max-width: 80%; display: flex; flex-direction: column; background: var(--panel); }
 .list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 #listTitle { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-tools { display: flex; align-items: center; gap: 6px; }
 .sorters { display: flex; gap: 4px; }
 .sorters button { border: 1px solid transparent; background: transparent; color: var(--dim); font-size: 12px; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
 .sorters button.active { border-color: var(--border); color: var(--accent); background: var(--hover); }
+.wb-toggle { border: 1px solid transparent; background: transparent; color: var(--dim); font-size: 12px; padding: 3px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.wb-toggle.active { border-color: var(--border); color: var(--accent); background: var(--hover); }
 #fileList { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
 #fileList .empty { padding: 28px 12px; text-align: center; color: var(--dim); font-size: 13px; }
-.item { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
+.item { display: block; padding: 6px 12px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
 .item:hover { background: var(--hover); }
+.item .row { display: flex; align-items: center; gap: 8px; }
+.item .wb { margin: 4px 0 2px 26px; padding: 6px 10px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--dim); white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
 .item .icon { flex: none; }
 .item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item.dir .name { font-weight: 600; }
@@ -162,10 +167,13 @@ mark { background: var(--mark); color: var(--mark-text); border-radius: 2px; pad
   <section id="left">
     <div class="list-head">
       <span id="listTitle">目录</span>
-      <div class="sorters" id="sorters">
-        <button data-key="name">名称</button>
-        <button data-key="size">大小</button>
-        <button data-key="time" class="active">时间 ↓</button>
+      <div class="list-tools">
+        <div class="sorters" id="sorters">
+          <button data-key="name">名称</button>
+          <button data-key="size">大小</button>
+          <button data-key="time" class="active">时间 ↓</button>
+        </div>
+        <button id="btnWB" class="wb-toggle active" title="显示/隐藏目录下 .whiteboard 文件内容">📝 whiteboard</button>
       </div>
     </div>
     <ul id="fileList"></ul>
@@ -220,6 +228,7 @@ let fileMeta = {};
 let filterText = '';
 let filterOnly = false;
 let rafId = 0;
+let wbOn = localStorage.getItem('smlog-wb') !== '0'; // show .whiteboard boxes under dirs
 
 /* ---------- Helpers ---------- */
 function el(tag, cls, text) {
@@ -331,23 +340,30 @@ function renderList() {
   }
   for (const it of items) {
     const li = el('li', 'item' + (it.is_dir ? ' dir' : ''));
-    li.append(el('span', 'icon', it.is_dir ? '📁' : '📄'));
+    const row = el('div', 'row');
+    row.append(el('span', 'icon', it.is_dir ? '📁' : '📄'));
     const name = el('span', 'name', it.name);
     name.title = it.rel_path;
-    li.append(name);
+    row.append(name);
     const badges = el('span', 'badges');
     for (const t of (it.tags || [])) badges.append(el('span', 'tag tag-' + t, t));
-    li.append(badges);
+    row.append(badges);
     const meta = el('span', 'meta');
     if (it.matches) meta.textContent = it.matches.length + ' 处匹配';
     else if (!it.is_dir) meta.textContent = humanSize(it.size);
-    li.append(meta);
-    li.append(el('span', 'meta time', it.mod_time || ''));
+    row.append(meta);
+    row.append(el('span', 'meta time', it.mod_time || ''));
     const act = el('span', 'act');
     const a = el('a', '', it.is_dir ? '打包下载 .zip' : '下载');
     a.href = '/api/download?path=' + enc(it.rel_path);
     act.append(a);
-    li.append(act);
+    row.append(act);
+    li.append(row);
+    if (wbOn && it.whiteboard) {
+      const box = el('div', 'wb', it.whiteboard);
+      box.title = it.whiteboard;
+      li.append(box);
+    }
     li.addEventListener('click', ev => {
       if (ev.target.closest('.act')) return; // download button: don't open
       if (it.is_dir) { exitSearch(); loadDir(it.rel_path); }
@@ -384,6 +400,14 @@ document.querySelectorAll('#sorters button').forEach(btn => {
     btn.textContent = sortLabels[key] + (sortAsc ? ' ↑' : ' ↓');
     renderList();
   });
+});
+
+/* Whiteboard display toggle (persisted) */
+$('#btnWB').addEventListener('click', () => {
+  wbOn = !wbOn;
+  localStorage.setItem('smlog-wb', wbOn ? '1' : '0');
+  $('#btnWB').classList.toggle('active', wbOn);
+  renderList();
 });
 
 /* ---------- Dual-mode search ---------- */

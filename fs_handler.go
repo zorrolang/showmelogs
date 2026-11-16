@@ -28,6 +28,9 @@ const (
 	previewFullMax      = 10 * 1024 * 1024 // full-load limit: 10 MB
 	binaryProbeBytes    = 512              // binary probe sample size
 
+	whiteboardFileName = ".whiteboard" // optional free-form metadata file in a result dir
+	whiteboardMaxBytes = 4096          // max whiteboard bytes surfaced to the UI
+
 	timeLayout = "2006-01-02 15:04:05"
 )
 
@@ -144,12 +147,13 @@ func hasSymlinkComponent(root, rel string) (bool, error) {
 // item is the unified JSON structure for directory listings and name-search
 // results.
 type item struct {
-	Name    string   `json:"name"`
-	RelPath string   `json:"rel_path"`
-	IsDir   bool     `json:"is_dir"`
-	Size    int64    `json:"size"`
-	ModTime string   `json:"mod_time"`
-	Tags    []string `json:"tags"`
+	Name       string   `json:"name"`
+	RelPath    string   `json:"rel_path"`
+	IsDir      bool     `json:"is_dir"`
+	Size       int64    `json:"size"`
+	ModTime    string   `json:"mod_time"`
+	Tags       []string `json:"tags"`
+	Whiteboard string   `json:"whiteboard,omitempty"`
 }
 
 // detectTags derives display badges from name keywords (case-insensitive).
@@ -194,6 +198,25 @@ func cleanRel(rel string) string {
 	return p
 }
 
+// readWhiteboard returns the content of the optional free-form .whiteboard
+// file inside dir, capped at whiteboardMaxBytes (rune-safe). It returns ""
+// when the file is absent or unreadable.
+func readWhiteboard(dir string) string {
+	f, err := os.Open(filepath.Join(dir, whiteboardFileName))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, whiteboardMaxBytes+1))
+	if err != nil {
+		return ""
+	}
+	if len(b) > whiteboardMaxBytes {
+		return truncateText(string(b[:whiteboardMaxBytes]), whiteboardMaxBytes)
+	}
+	return string(b)
+}
+
 // handleList lists the direct children of the given relative path (dirs
 // first, mtime descending by default).
 func (a *App) handleList(w http.ResponseWriter, r *http.Request) {
@@ -234,6 +257,9 @@ func (a *App) handleList(w http.ResponseWriter, r *http.Request) {
 	raws := make([]raw, 0, len(entries))
 	for _, e := range entries {
 		name := e.Name()
+		if name == whiteboardFileName {
+			continue // the metadata file itself is not listed as an entry
+		}
 		abs := filepath.Join(full, name)
 		isDir := e.IsDir()
 		var info fs.FileInfo
@@ -263,13 +289,18 @@ func (a *App) handleList(w http.ResponseWriter, r *http.Request) {
 		if isDir {
 			size = 0
 		}
+		var wb string
+		if isDir {
+			wb = readWhiteboard(abs)
+		}
 		raws = append(raws, raw{
 			item: item{
-				Name:    name,
-				RelPath: joinRel(relClean, name),
-				IsDir:   isDir,
-				Size:    size,
-				Tags:    detectTags(name),
+				Name:       name,
+				RelPath:    joinRel(relClean, name),
+				IsDir:      isDir,
+				Size:       size,
+				Tags:       detectTags(name),
+				Whiteboard: wb,
 			},
 			mod: info.ModTime(),
 		})
